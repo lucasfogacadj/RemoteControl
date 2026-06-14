@@ -1,0 +1,22 @@
+services:
+  control-hub:
+    build:
+      context: .
+      dockerfile: hub/Dockerfile
+    environment:
+      CONTROL_PAIRING_TOKEN: ${CONTROL_PAIRING_TOKEN:-change-this-token}
+      CONTROL_DB_PATH: /data/control.db
+      CONTROL_SCHEDULER_TICK_SECONDS: ${CONTROL_SCHEDULER_TICK_SECONDS:-1}
+    ports:
+      - "${CONTROL_PORT:-8080}:8080"
+    volumes:
+      - control-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  control-data:

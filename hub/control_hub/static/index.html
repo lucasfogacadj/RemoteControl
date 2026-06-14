@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Windows Activity Control</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Local Control Hub</p>
+          <h1>Windows Activity Control</h1>
+        </div>
+        <button id="toggleButton" class="toggle-button" type="button">Carregando</button>
+      </header>
+
+      <section class="status-grid" aria-label="Estado atual">
+        <article class="panel">
+          <div class="panel-header">
+            <h2>Agente</h2>
+            <span id="agentBadge" class="badge">Offline</span>
+          </div>
+          <dl class="metrics">
+            <div>
+              <dt>ID</dt>
+              <dd id="agentId">-</dd>
+            </div>
+            <div>
+              <dt>Heartbeat</dt>
+              <dd id="agentHeartbeat">-</dd>
+            </div>
+            <div>
+              <dt>Mensagem</dt>
+              <dd id="agentMessage">-</dd>
+            </div>
+          </dl>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <h2>Execucao</h2>
+            <span id="enabledBadge" class="badge">Pausada</span>
+          </div>
+          <dl class="metrics">
+            <div>
+              <dt>Intervalo</dt>
+              <dd id="intervalSummary">-</dd>
+            </div>
+            <div>
+              <dt>Arquivo</dt>
+              <dd id="targetSummary">-</dd>
+            </div>
+            <div>
+              <dt>Comandos</dt>
+              <dd id="commandSummary">-</dd>
+            </div>
+          </dl>
+        </article>
+      </section>
+
+      <section class="workspace">
+        <form id="settingsForm" class="panel form-panel">
+          <div class="panel-header">
+            <h2>Rotinas</h2>
+            <button class="primary" type="submit">Salvar</button>
+          </div>
+
+          <div class="form-grid">
+            <label>
+              Arquivo VS Code
+              <input id="vscodeTargetFile" name="vscodeTargetFile" type="text" placeholder="C:\caminho\arquivo.txt" />
+            </label>
+            <label>
+              Texto por execucao
+              <input id="vscodeTextLength" name="vscodeTextLength" type="number" min="1" max="500" />
+            </label>
+            <label>
+              Intervalo minimo (s)
+              <input id="minInterval" name="minInterval" type="number" min="5" />
+            </label>
+            <label>
+              Intervalo maximo (s)
+              <input id="maxInterval" name="maxInterval" type="number" min="5" />
+            </label>
+          </div>
+
+          <div class="routine-list" id="routineList"></div>
+          <p id="formMessage" class="form-message" role="status"></p>
+        </form>
+
+        <aside class="panel">
+          <div class="panel-header">
+            <h2>Eventos</h2>
+            <button id="refreshButton" class="secondary" type="button">Atualizar</button>
+          </div>
+          <ol id="eventList" class="event-list"></ol>
+        </aside>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
+
