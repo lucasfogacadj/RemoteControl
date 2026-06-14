@@ -7,6 +7,7 @@ Hub local containerizado para orquestrar rotinas autorizadas em um computador Wi
 - `hub/`: API FastAPI, UI web local, scheduler, persistencia SQLite e WebSocket para o agente.
 - `windows_agent/`: agente Python para rodar na sessao interativa do Windows autorizado.
 - `docs/`: guias de deploy no Ubuntu Server e configuracao do agente Windows.
+- `scripts/` e `ops/systemd/`: deploy automatico no servidor.
 - `openspec/`: proposta, specs, design e tarefas do OpenSpec.
 
 O Ubuntu Server executa o hub em container. O Windows executa o agente localmente, conectado de saida ao hub por WebSocket com token compartilhado.
@@ -35,6 +36,10 @@ docker compose up --build
 ## Inicio rapido do agente Windows
 
 Veja [docs/windows-agent.md](docs/windows-agent.md).
+
+## Deploy automatico
+
+Veja [docs/autodeploy.md](docs/autodeploy.md) e [docs/ubuntu-server.md](docs/ubuntu-server.md).
 
 Em modo dry-run, o agente conecta e responde comandos sem abrir programas:
 

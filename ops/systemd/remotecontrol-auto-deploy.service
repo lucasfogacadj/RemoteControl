@@ -1,0 +1,16 @@
+[Unit]
+Description=RemoteControl automatic deploy checker
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=casaos
+WorkingDirectory=/home/casaos/RemoteControl
+Environment=PROJECT_ROOT=/home/casaos/RemoteControl
+Environment=DEPLOY_REMOTE=origin
+Environment=DEPLOY_BRANCH=main
+Environment=CONTROL_PORT=8090
+Environment=DEPLOY_VERIFY_GIT_SIGNATURES=0
+ExecStart=/bin/bash /home/casaos/RemoteControl/scripts/deploy-if-needed.sh
+
