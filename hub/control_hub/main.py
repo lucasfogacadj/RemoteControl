@@ -53,10 +53,13 @@ def health() -> dict[str, str]:
 
 @app.get("/api/state")
 def get_state() -> dict[str, Any]:
+    scheduler_state = scheduler.snapshot()
+    scheduler_state["task_running"] = scheduler_task is not None and not scheduler_task.done()
     return {
         "settings": store.get_settings(),
         "agent": store.get_agent_state(),
         "connection": agent_manager.snapshot(),
+        "scheduler": scheduler_state,
         "events": store.list_events(),
         "commands": store.list_commands(),
     }

@@ -29,8 +29,14 @@ class AgentManager:
 
     async def send_command(self, command: dict[str, Any]) -> bool:
         async with self._send_lock:
-            if self._websocket is None:
+            websocket = self._websocket
+            if websocket is None:
                 return False
-            await self._websocket.send_json({"type": "command", "command": command})
+            try:
+                await websocket.send_json({"type": "command", "command": command})
+            except Exception:
+                if self._websocket is websocket:
+                    self._websocket = None
+                    self._agent_id = None
+                return False
             return True
-

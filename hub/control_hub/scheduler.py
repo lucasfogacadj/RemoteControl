@@ -22,10 +22,22 @@ class RoutineScheduler:
     async def run(self) -> None:
         while not self._stop_event.is_set():
             await asyncio.sleep(self.tick_seconds)
-            await self._tick()
+            try:
+                await self._tick()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self.store.record_event("scheduler", "error", f"Scheduler recuperou apos erro: {exc}")
+                self._next_run_at = time.monotonic() + 10
 
     def stop(self) -> None:
         self._stop_event.set()
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "running": not self._stop_event.is_set(),
+            "next_run_in_seconds": max(0, round(self._next_run_at - time.monotonic(), 2)),
+        }
 
     async def _tick(self) -> None:
         now = time.monotonic()
@@ -67,4 +79,3 @@ class RoutineScheduler:
         minimum = int(settings["min_interval_seconds"])
         maximum = int(settings["max_interval_seconds"])
         self._next_run_at = now + random.uniform(minimum, maximum)
-
