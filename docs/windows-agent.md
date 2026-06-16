@@ -7,6 +7,7 @@ Este agente deve rodar na maquina Windows autorizada, dentro de uma sessao inter
 - Windows com Python 3.11+.
 - VS Code instalado e acessivel pelo comando configurado em `VSCODE_EXECUTABLE`.
 - Discord e Chrome instalados se as rotinas correspondentes forem usadas.
+- Sessao Windows desbloqueada e visivel para rotinas de click do mouse.
 - Acesso de rede do Windows para o hub no Ubuntu Server.
 
 ## Instalar
@@ -56,6 +57,8 @@ python -m windows_agent.agent
 ```
 
 Mantenha a sessao Windows desbloqueada e visivel. O agente abre o arquivo configurado no VS Code antes de digitar, mas automacao de GUI ainda depende do foco real da sessao.
+
+Clicks de mouse sao configurados no hub com coordenadas absolutas da tela, botao (`left`, `right` ou `middle`) e quantidade de clicks. Revise esses valores em dry-run antes de ativar execucao real, especialmente em ambientes com mais de um monitor ou mudanca de resolucao.
 
 ## Inicializacao no logon
 

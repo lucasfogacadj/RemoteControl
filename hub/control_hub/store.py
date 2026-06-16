@@ -74,7 +74,7 @@ class Store:
             row = self._conn.execute("SELECT data FROM settings WHERE id = 1").fetchone()
             if not row:
                 return default_settings()
-            return json.loads(row["data"])
+            return validate_settings(json.loads(row["data"]))
 
     def save_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
         validated = validate_settings(settings)
@@ -193,4 +193,3 @@ class Store:
             item["payload"] = json.loads(item["payload"])
             output.append(item)
         return output
-

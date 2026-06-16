@@ -5,7 +5,8 @@ import random
 from typing import Any
 
 
-ROUTINE_IDS = ("vscode_type_random_text", "open_discord", "open_gmail")
+ROUTINE_IDS = ("vscode_type_random_text", "open_discord", "open_gmail", "mouse_click")
+MOUSE_BUTTONS = {"left", "right", "middle"}
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "enabled": False,
@@ -13,6 +14,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "max_interval_seconds": 180,
     "vscode_target_file": "",
     "vscode_text_length": 80,
+    "mouse_click_x": 0,
+    "mouse_click_y": 0,
+    "mouse_click_button": "left",
+    "mouse_click_count": 1,
     "routines": [
         {
             "id": "vscode_type_random_text",
@@ -31,6 +36,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             "label": "Chrome Gmail",
             "enabled": True,
             "percentage": 25,
+        },
+        {
+            "id": "mouse_click",
+            "label": "Mouse Click",
+            "enabled": False,
+            "percentage": 0,
         },
     ],
 }
@@ -53,8 +64,11 @@ def validate_settings(payload: dict[str, Any]) -> dict[str, Any]:
         settings["min_interval_seconds"] = int(settings["min_interval_seconds"])
         settings["max_interval_seconds"] = int(settings["max_interval_seconds"])
         settings["vscode_text_length"] = int(settings["vscode_text_length"])
+        settings["mouse_click_x"] = int(settings["mouse_click_x"])
+        settings["mouse_click_y"] = int(settings["mouse_click_y"])
+        settings["mouse_click_count"] = int(settings["mouse_click_count"])
     except (TypeError, ValueError) as exc:
-        raise SettingsError("Intervalos e tamanho de texto devem ser numeros inteiros.") from exc
+        raise SettingsError("Intervalos, texto e parametros de mouse devem ser numeros inteiros.") from exc
 
     if settings["min_interval_seconds"] < 5:
         raise SettingsError("Intervalo minimo deve ser pelo menos 5 segundos.")
@@ -62,6 +76,13 @@ def validate_settings(payload: dict[str, Any]) -> dict[str, Any]:
         raise SettingsError("Intervalo maximo deve ser maior ou igual ao minimo.")
     if not 1 <= settings["vscode_text_length"] <= 500:
         raise SettingsError("Tamanho do texto do VS Code deve ficar entre 1 e 500 caracteres.")
+    settings["mouse_click_button"] = str(settings.get("mouse_click_button", "")).strip().lower()
+    if settings["mouse_click_x"] < 0 or settings["mouse_click_y"] < 0:
+        raise SettingsError("Coordenadas do click do mouse devem ser maiores ou iguais a zero.")
+    if settings["mouse_click_button"] not in MOUSE_BUTTONS:
+        raise SettingsError("Botao do mouse deve ser left, right ou middle.")
+    if not 1 <= settings["mouse_click_count"] <= 10:
+        raise SettingsError("Quantidade de clicks do mouse deve ficar entre 1 e 10.")
 
     incoming_routines = payload.get("routines", DEFAULT_SETTINGS["routines"])
     if not isinstance(incoming_routines, list):
@@ -138,4 +159,14 @@ def build_command(routine: dict[str, Any], settings: dict[str, Any]) -> dict[str
         return {"type": routine_id, "params": {}}
     if routine_id == "open_gmail":
         return {"type": routine_id, "params": {"url": "https://mail.google.com/"}}
+    if routine_id == "mouse_click":
+        return {
+            "type": routine_id,
+            "params": {
+                "x": settings.get("mouse_click_x", 0),
+                "y": settings.get("mouse_click_y", 0),
+                "button": settings.get("mouse_click_button", "left"),
+                "clicks": settings.get("mouse_click_count", 1),
+            },
+        }
     raise SettingsError(f"Rotina nao suportada: {routine_id}")

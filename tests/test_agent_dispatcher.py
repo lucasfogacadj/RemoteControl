@@ -54,6 +54,30 @@ def test_gmail_dry_run_succeeds_without_opening_browser():
     assert "Dry-run" in response["message"]
 
 
+def test_mouse_click_dry_run_succeeds_without_clicking():
+    response = asyncio.run(
+        dispatch_command(
+            {"id": "1", "type": "mouse_click", "params": {"x": 10, "y": 20, "button": "left", "clicks": 2}},
+            config(),
+        )
+    )
+
+    assert response["status"] == "success"
+    assert "Dry-run Mouse" in response["message"]
+
+
+def test_mouse_click_rejects_invalid_button():
+    response = asyncio.run(
+        dispatch_command(
+            {"id": "1", "type": "mouse_click", "params": {"x": 10, "y": 20, "button": "side", "clicks": 1}},
+            config(),
+        )
+    )
+
+    assert response["status"] == "failure"
+    assert "Botao" in response["message"]
+
+
 def test_resolve_executable_accepts_existing_explicit_path(tmp_path):
     executable = tmp_path / "tool.exe"
     executable.write_text("", encoding="utf-8")

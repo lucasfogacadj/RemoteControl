@@ -16,7 +16,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import webbrowser
 
 
-SUPPORTED_COMMANDS = {"vscode_type_random_text", "open_discord", "open_gmail"}
+SUPPORTED_COMMANDS = {"vscode_type_random_text", "open_discord", "open_gmail", "mouse_click"}
+MOUSE_BUTTONS = {"left", "right", "middle"}
 
 
 @dataclass(frozen=True)
@@ -138,6 +139,8 @@ async def dispatch_command(command: dict[str, Any], config: AgentConfig) -> dict
             return await handle_discord(command, config)
         if command_type == "open_gmail":
             return await handle_gmail(command, config)
+        if command_type == "mouse_click":
+            return await handle_mouse_click(command, config)
     except Exception as exc:  # pragma: no cover - final safety net for runtime automation errors
         return result(command, "failure", f"Erro ao executar {command_type}: {exc}")
 
@@ -230,6 +233,36 @@ async def handle_gmail(command: dict[str, Any], config: AgentConfig) -> dict[str
         return result(command, "failure", "Chrome nao encontrado no PATH nem nos caminhos padrao.")
     await asyncio.sleep(1)
     return result(command, "success", "Chrome aberto no Gmail. Login, se necessario, e manual.")
+
+
+async def handle_mouse_click(command: dict[str, Any], config: AgentConfig) -> dict[str, Any]:
+    params = command.get("params") or {}
+    try:
+        x = int(params.get("x", 0))
+        y = int(params.get("y", 0))
+        clicks = int(params.get("clicks", 1))
+    except (TypeError, ValueError):
+        return result(command, "failure", "Parametros do click do mouse devem ser numeros inteiros.")
+
+    button = str(params.get("button", "left")).strip().lower()
+    if x < 0 or y < 0:
+        return result(command, "failure", "Coordenadas do click do mouse devem ser maiores ou iguais a zero.")
+    if button not in MOUSE_BUTTONS:
+        return result(command, "failure", "Botao do mouse deve ser left, right ou middle.")
+    if not 1 <= clicks <= 10:
+        return result(command, "failure", "Quantidade de clicks do mouse deve ficar entre 1 e 10.")
+
+    if config.dry_run:
+        return result(command, "success", f"Dry-run Mouse: clicaria {button} em ({x}, {y}) {clicks} vez(es).")
+
+    try:
+        import pyautogui
+    except ImportError:
+        return result(command, "failure", "pyautogui nao instalado no agente Windows.")
+
+    pyautogui.click(x=x, y=y, button=button, clicks=clicks)
+    await asyncio.sleep(0.2)
+    return result(command, "success", f"Mouse clicado em ({x}, {y}) com botao {button} {clicks} vez(es).")
 
 
 async def heartbeat_loop(websocket: Any, config: AgentConfig) -> None:

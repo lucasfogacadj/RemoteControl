@@ -24,7 +24,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -130,7 +131,7 @@ h2 {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 12px;
   margin: 0;
 }
@@ -168,7 +169,8 @@ label {
   font-weight: 700;
 }
 
-input {
+input,
+select {
   width: 100%;
   min-height: 42px;
   border: 1px solid var(--line);
@@ -178,7 +180,8 @@ input {
   background: #fff;
 }
 
-input:focus {
+input:focus,
+select:focus {
   border-color: var(--blue);
   outline: 3px solid rgba(39, 100, 216, 0.16);
 }
@@ -322,4 +325,3 @@ button:disabled {
     justify-content: flex-start;
   }
 }
-

@@ -53,6 +53,10 @@
               <dd id="targetSummary">-</dd>
             </div>
             <div>
+              <dt>Mouse</dt>
+              <dd id="mouseSummary">-</dd>
+            </div>
+            <div>
               <dt>Comandos</dt>
               <dd id="commandSummary">-</dd>
             </div>
@@ -75,6 +79,26 @@
             <label>
               Texto por execucao
               <input id="vscodeTextLength" name="vscodeTextLength" type="number" min="1" max="500" />
+            </label>
+            <label>
+              Mouse X
+              <input id="mouseClickX" name="mouseClickX" type="number" min="0" />
+            </label>
+            <label>
+              Mouse Y
+              <input id="mouseClickY" name="mouseClickY" type="number" min="0" />
+            </label>
+            <label>
+              Botao do mouse
+              <select id="mouseClickButton" name="mouseClickButton">
+                <option value="left">Esquerdo</option>
+                <option value="right">Direito</option>
+                <option value="middle">Meio</option>
+              </select>
+            </label>
+            <label>
+              Clicks por execucao
+              <input id="mouseClickCount" name="mouseClickCount" type="number" min="1" max="10" />
             </label>
             <label>
               Intervalo minimo (s)
