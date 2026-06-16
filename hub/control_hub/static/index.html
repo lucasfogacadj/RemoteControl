@@ -77,16 +77,12 @@
               <input id="vscodeTargetFile" name="vscodeTargetFile" type="text" placeholder="C:\caminho\arquivo.txt" />
             </label>
             <label>
-              Texto por execucao
+              Codigo Go por execucao
               <input id="vscodeTextLength" name="vscodeTextLength" type="number" min="1" max="500" />
             </label>
             <label>
-              Mouse X
-              <input id="mouseClickX" name="mouseClickX" type="number" min="0" />
-            </label>
-            <label>
-              Mouse Y
-              <input id="mouseClickY" name="mouseClickY" type="number" min="0" />
+              Intervalo entre teclas (s)
+              <input id="vscodeTypingInterval" name="vscodeTypingInterval" type="number" min="0" max="2" step="0.01" />
             </label>
             <label>
               Botao do mouse
@@ -99,6 +95,10 @@
             <label>
               Clicks por execucao
               <input id="mouseClickCount" name="mouseClickCount" type="number" min="1" max="10" />
+            </label>
+            <label>
+              Margem do click aleatorio (px)
+              <input id="mouseClickMargin" name="mouseClickMargin" type="number" min="1" max="1000" />
             </label>
             <label>
               Intervalo minimo (s)

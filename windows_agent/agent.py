@@ -66,10 +66,32 @@ def build_agent_url(config: AgentConfig) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
-def random_text(length: int) -> str:
-    alphabet = string.ascii_letters + string.digits + "     .,;:-_"
-    text = "".join(random.choice(alphabet) for _ in range(length)).strip()
-    return text or "control"
+def random_identifier(prefix: str = "value") -> str:
+    suffix = "".join(random.choice(string.ascii_lowercase) for _ in range(5))
+    return f"{prefix}{suffix}"
+
+
+def random_go_code(length: int) -> str:
+    name = random_identifier("item")
+    limit = random.randint(2, 8)
+    lines = [
+        "package main",
+        "",
+        'import "fmt"',
+        "",
+        "func main() {",
+        f"    {name} := 0",
+        f"    for i := 0; i < {limit}; i++ {{",
+        f"        {name} += i",
+        "    }",
+        f'    fmt.Println("total", {name})',
+    ]
+    while len("\n".join([*lines, "}"])) < length:
+        label = random_identifier("trace")
+        value = random.randint(1, 99)
+        lines.append(f'    fmt.Println("{label}", {name}+{value})')
+    lines.append("}")
+    return "\n".join(lines) + "\n"
 
 
 def expand_path(value: str) -> str:
@@ -141,6 +163,19 @@ def is_mouse_failsafe_point(pyautogui: Any, x: int, y: int) -> bool:
     }
 
 
+def random_mouse_point(pyautogui: Any, margin: int, rng: random.Random | None = None) -> tuple[int, int]:
+    rng = rng or random
+    width, height = pyautogui.size()
+    max_margin_x = max(1, (int(width) - 1) // 2)
+    max_margin_y = max(1, (int(height) - 1) // 2)
+    safe_margin = max(1, min(int(margin), max_margin_x, max_margin_y))
+    min_x = safe_margin
+    max_x = max(safe_margin, int(width) - safe_margin - 1)
+    min_y = safe_margin
+    max_y = max(safe_margin, int(height) - safe_margin - 1)
+    return rng.randint(min_x, max_x), rng.randint(min_y, max_y)
+
+
 async def dispatch_command(command: dict[str, Any], config: AgentConfig) -> dict[str, Any]:
     command_type = str(command.get("type", ""))
     if command_type not in SUPPORTED_COMMANDS:
@@ -178,10 +213,15 @@ async def handle_vscode(command: dict[str, Any], config: AgentConfig) -> dict[st
     except (TypeError, ValueError):
         text_length = 80
     text_length = max(1, min(text_length, 500))
-    text = random_text(text_length)
+    text = random_go_code(text_length)
+    try:
+        typing_interval = float(params.get("typing_interval_seconds", 0.08))
+    except (TypeError, ValueError):
+        typing_interval = 0.08
+    typing_interval = max(0, min(typing_interval, 2))
 
     if config.dry_run:
-        return result(command, "success", f"Dry-run VS Code: abriria {target_file} e digitaria {len(text)} caracteres.")
+        return result(command, "success", f"Dry-run VS Code: abriria {target_file} e digitaria codigo Go com {len(text)} caracteres.")
 
     executable = vscode_executable(config)
     if executable:
@@ -214,7 +254,7 @@ async def handle_vscode(command: dict[str, Any], config: AgentConfig) -> dict[st
     try:
         pyautogui.hotkey("ctrl", "end")
         pyautogui.press("enter")
-        pyautogui.write(text, interval=0.03)
+        pyautogui.write(text, interval=typing_interval)
     except pyautogui.FailSafeException:
         return result(command, "failure", PYAUTOGUI_FAILSAFE_MESSAGE)
     return result(command, "success", f"Texto digitado em {target_file}.")
@@ -255,33 +295,33 @@ async def handle_gmail(command: dict[str, Any], config: AgentConfig) -> dict[str
 async def handle_mouse_click(command: dict[str, Any], config: AgentConfig) -> dict[str, Any]:
     params = command.get("params") or {}
     try:
-        x = int(params.get("x", 0))
-        y = int(params.get("y", 0))
         clicks = int(params.get("clicks", 1))
+        margin = int(params.get("margin", 100))
     except (TypeError, ValueError):
         return result(command, "failure", "Parametros do click do mouse devem ser numeros inteiros.")
 
     button = str(params.get("button", "left")).strip().lower()
-    if x < 0 or y < 0:
-        return result(command, "failure", "Coordenadas do click do mouse devem ser maiores ou iguais a zero.")
     if button not in MOUSE_BUTTONS:
         return result(command, "failure", "Botao do mouse deve ser left, right ou middle.")
     if not 1 <= clicks <= 10:
         return result(command, "failure", "Quantidade de clicks do mouse deve ficar entre 1 e 10.")
+    if not 1 <= margin <= 1000:
+        return result(command, "failure", "Margem segura do click do mouse deve ficar entre 1 e 1000 pixels.")
 
     if config.dry_run:
-        return result(command, "success", f"Dry-run Mouse: clicaria {button} em ({x}, {y}) {clicks} vez(es).")
+        return result(command, "success", f"Dry-run Mouse: clicaria {button} em ponto aleatorio com margem {margin}px {clicks} vez(es).")
 
     try:
         import pyautogui
     except ImportError:
         return result(command, "failure", "pyautogui nao instalado no agente Windows.")
 
+    x, y = random_mouse_point(pyautogui, margin)
     if is_mouse_failsafe_point(pyautogui, x, y):
         return result(
             command,
             "failure",
-            "Coordenada do click coincide com um canto de fail-safe do PyAutoGUI. Escolha um ponto afastado dos cantos.",
+            "Ponto aleatorio coincidiu com um canto de fail-safe do PyAutoGUI. Tente novamente com margem maior.",
         )
 
     try:

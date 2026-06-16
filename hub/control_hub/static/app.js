@@ -19,10 +19,10 @@ const els = {
   refreshButton: document.querySelector("#refreshButton"),
   vscodeTargetFile: document.querySelector("#vscodeTargetFile"),
   vscodeTextLength: document.querySelector("#vscodeTextLength"),
-  mouseClickX: document.querySelector("#mouseClickX"),
-  mouseClickY: document.querySelector("#mouseClickY"),
+  vscodeTypingInterval: document.querySelector("#vscodeTypingInterval"),
   mouseClickButton: document.querySelector("#mouseClickButton"),
   mouseClickCount: document.querySelector("#mouseClickCount"),
+  mouseClickMargin: document.querySelector("#mouseClickMargin"),
   minInterval: document.querySelector("#minInterval"),
   maxInterval: document.querySelector("#maxInterval"),
   eventList: document.querySelector("#eventList"),
@@ -105,7 +105,7 @@ function renderStatus(state) {
   els.agentMessage.textContent = agent.last_message || "-";
   els.intervalSummary.textContent = `${settings.min_interval_seconds}s - ${settings.max_interval_seconds}s`;
   els.targetSummary.textContent = settings.vscode_target_file || "Nao configurado";
-  els.mouseSummary.textContent = `${settings.mouse_click_button} (${settings.mouse_click_x}, ${settings.mouse_click_y}) x${settings.mouse_click_count}`;
+  els.mouseSummary.textContent = `${settings.mouse_click_button} aleatorio margem ${settings.mouse_click_margin}px x${settings.mouse_click_count}`;
   els.commandSummary.textContent = `${state.commands.length} recentes`;
   renderEvents(state.events);
 }
@@ -113,10 +113,10 @@ function renderStatus(state) {
 function renderSettingsForm(settings) {
   els.vscodeTargetFile.value = settings.vscode_target_file || "";
   els.vscodeTextLength.value = settings.vscode_text_length;
-  els.mouseClickX.value = settings.mouse_click_x;
-  els.mouseClickY.value = settings.mouse_click_y;
+  els.vscodeTypingInterval.value = settings.vscode_typing_interval_seconds;
   els.mouseClickButton.value = settings.mouse_click_button || "left";
   els.mouseClickCount.value = settings.mouse_click_count;
+  els.mouseClickMargin.value = settings.mouse_click_margin;
   els.minInterval.value = settings.min_interval_seconds;
   els.maxInterval.value = settings.max_interval_seconds;
   renderRoutines(settings.routines);
@@ -146,10 +146,10 @@ function collectSettings() {
     ...currentSettings,
     vscode_target_file: els.vscodeTargetFile.value.trim(),
     vscode_text_length: Number(els.vscodeTextLength.value),
-    mouse_click_x: Number(els.mouseClickX.value),
-    mouse_click_y: Number(els.mouseClickY.value),
+    vscode_typing_interval_seconds: Number(els.vscodeTypingInterval.value),
     mouse_click_button: els.mouseClickButton.value,
     mouse_click_count: Number(els.mouseClickCount.value),
+    mouse_click_margin: Number(els.mouseClickMargin.value),
     min_interval_seconds: Number(els.minInterval.value),
     max_interval_seconds: Number(els.maxInterval.value),
     routines,

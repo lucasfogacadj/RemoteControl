@@ -19,7 +19,7 @@ AnyDesk fica apenas como canal manual de acesso/suporte. O projeto nao automatiz
 - Use somente em maquinas suas ou com autorizacao explicita.
 - O agente executa apenas comandos allowlisted: VS Code, Discord, Chrome/Gmail e click de mouse configurado.
 - A digitacao aleatoria e restrita ao arquivo configurado para o VS Code.
-- Clicks de mouse usam coordenadas absolutas configuradas no hub e dependem da sessao Windows visivel.
+- Clicks de mouse usam pontos aleatorios com margem segura configurada no hub e dependem da sessao Windows visivel.
 - O sistema nao coleta, armazena ou preenche credenciais.
 - Rotinas de GUI exigem sessao Windows interativa ativa.
 

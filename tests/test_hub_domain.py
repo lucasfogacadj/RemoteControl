@@ -30,6 +30,8 @@ def test_validate_settings_merges_mouse_defaults_for_legacy_payload():
     settings.pop("mouse_click_y")
     settings.pop("mouse_click_button")
     settings.pop("mouse_click_count")
+    settings.pop("mouse_click_margin")
+    settings.pop("vscode_typing_interval_seconds")
     settings["routines"] = settings["routines"][:3]
 
     validated = validate_settings(settings)
@@ -38,6 +40,8 @@ def test_validate_settings_merges_mouse_defaults_for_legacy_payload():
     assert mouse_routine["enabled"] is False
     assert validated["mouse_click_button"] == "left"
     assert validated["mouse_click_count"] == 1
+    assert validated["mouse_click_margin"] == 100
+    assert validated["vscode_typing_interval_seconds"] == 0.08
 
 
 def test_validate_settings_requires_vscode_file_when_enabled():
@@ -67,6 +71,7 @@ def test_validate_settings_accepts_mouse_click_settings_and_builds_command():
     settings["mouse_click_y"] = 240
     settings["mouse_click_button"] = "right"
     settings["mouse_click_count"] = 2
+    settings["mouse_click_margin"] = 140
 
     validated = validate_settings(settings)
     mouse_routine = next(routine for routine in validated["routines"] if routine["id"] == "mouse_click")
@@ -74,8 +79,19 @@ def test_validate_settings_accepts_mouse_click_settings_and_builds_command():
 
     assert command == {
         "type": "mouse_click",
-        "params": {"x": 120, "y": 240, "button": "right", "clicks": 2},
+        "params": {"button": "right", "clicks": 2, "margin": 140},
     }
+
+
+def test_build_vscode_command_includes_typing_interval():
+    settings = default_settings()
+    settings["vscode_typing_interval_seconds"] = 0.12
+
+    validated = validate_settings(settings)
+    routine = next(routine for routine in validated["routines"] if routine["id"] == "vscode_type_random_text")
+    command = build_command(routine, validated)
+
+    assert command["params"]["typing_interval_seconds"] == 0.12
 
 
 @pytest.mark.parametrize(
@@ -84,6 +100,8 @@ def test_validate_settings_accepts_mouse_click_settings_and_builds_command():
         ("mouse_click_x", -1, "Coordenadas"),
         ("mouse_click_button", "side", "Botao"),
         ("mouse_click_count", 0, "Quantidade"),
+        ("mouse_click_margin", 0, "Margem"),
+        ("vscode_typing_interval_seconds", 3, "Intervalo de digitacao"),
     ],
 )
 def test_validate_settings_rejects_invalid_mouse_click_settings(field, value, message):

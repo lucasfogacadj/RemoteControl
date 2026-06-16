@@ -1,8 +1,9 @@
 import asyncio
+import random
 import sys
 from types import SimpleNamespace
 
-from windows_agent.agent import AgentConfig, dispatch_command, resolve_executable
+from windows_agent.agent import AgentConfig, dispatch_command, random_go_code, random_mouse_point, resolve_executable
 
 
 def config(**overrides):
@@ -59,19 +60,20 @@ def test_gmail_dry_run_succeeds_without_opening_browser():
 def test_mouse_click_dry_run_succeeds_without_clicking():
     response = asyncio.run(
         dispatch_command(
-            {"id": "1", "type": "mouse_click", "params": {"x": 10, "y": 20, "button": "left", "clicks": 2}},
+            {"id": "1", "type": "mouse_click", "params": {"button": "left", "clicks": 2, "margin": 80}},
             config(),
         )
     )
 
     assert response["status"] == "success"
     assert "Dry-run Mouse" in response["message"]
+    assert "aleatorio" in response["message"]
 
 
 def test_mouse_click_rejects_invalid_button():
     response = asyncio.run(
         dispatch_command(
-            {"id": "1", "type": "mouse_click", "params": {"x": 10, "y": 20, "button": "side", "clicks": 1}},
+            {"id": "1", "type": "mouse_click", "params": {"button": "side", "clicks": 1, "margin": 80}},
             config(),
         )
     )
@@ -80,12 +82,23 @@ def test_mouse_click_rejects_invalid_button():
     assert "Botao" in response["message"]
 
 
-def test_mouse_click_rejects_failsafe_corner_when_active(monkeypatch):
+def test_random_mouse_point_uses_safe_margin():
+    fake_pyautogui = SimpleNamespace(size=lambda: (1920, 1080))
+
+    x, y = random_mouse_point(fake_pyautogui, 120, random.Random(4))
+
+    assert 120 <= x <= 1799
+    assert 120 <= y <= 959
+
+
+def test_mouse_click_active_uses_random_safe_point(monkeypatch):
     class FailSafeException(Exception):
         pass
 
-    def click(**_kwargs):
-        raise AssertionError("click should not run for fail-safe corners")
+    captured = {}
+
+    def click(**kwargs):
+        captured.update(kwargs)
 
     fake_pyautogui = SimpleNamespace(
         FailSafeException=FailSafeException,
@@ -96,13 +109,15 @@ def test_mouse_click_rejects_failsafe_corner_when_active(monkeypatch):
 
     response = asyncio.run(
         dispatch_command(
-            {"id": "1", "type": "mouse_click", "params": {"x": 0, "y": 0, "button": "left", "clicks": 1}},
+            {"id": "1", "type": "mouse_click", "params": {"x": 0, "y": 0, "button": "left", "clicks": 1, "margin": 100}},
             config(dry_run=False),
         )
     )
 
-    assert response["status"] == "failure"
-    assert "fail-safe" in response["message"]
+    assert response["status"] == "success"
+    assert 100 <= captured["x"] <= 1819
+    assert 100 <= captured["y"] <= 979
+    assert captured["button"] == "left"
 
 
 def test_mouse_click_reports_failsafe_exception_when_cursor_is_in_corner(monkeypatch):
@@ -121,13 +136,22 @@ def test_mouse_click_reports_failsafe_exception_when_cursor_is_in_corner(monkeyp
 
     response = asyncio.run(
         dispatch_command(
-            {"id": "1", "type": "mouse_click", "params": {"x": 10, "y": 20, "button": "left", "clicks": 1}},
+            {"id": "1", "type": "mouse_click", "params": {"button": "left", "clicks": 1, "margin": 100}},
             config(dry_run=False),
         )
     )
 
     assert response["status"] == "failure"
     assert "Mova o mouse" in response["message"]
+
+
+def test_random_go_code_generates_go_snippet():
+    code = random_go_code(80)
+
+    assert "package main" in code
+    assert "func main()" in code
+    assert "fmt." in code
+    assert code.count("package main") == 1
 
 
 def test_resolve_executable_accepts_existing_explicit_path(tmp_path):
