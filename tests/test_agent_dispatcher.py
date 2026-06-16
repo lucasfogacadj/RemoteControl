@@ -1,4 +1,6 @@
 import asyncio
+import sys
+from types import SimpleNamespace
 
 from windows_agent.agent import AgentConfig, dispatch_command, resolve_executable
 
@@ -76,6 +78,56 @@ def test_mouse_click_rejects_invalid_button():
 
     assert response["status"] == "failure"
     assert "Botao" in response["message"]
+
+
+def test_mouse_click_rejects_failsafe_corner_when_active(monkeypatch):
+    class FailSafeException(Exception):
+        pass
+
+    def click(**_kwargs):
+        raise AssertionError("click should not run for fail-safe corners")
+
+    fake_pyautogui = SimpleNamespace(
+        FailSafeException=FailSafeException,
+        click=click,
+        size=lambda: (1920, 1080),
+    )
+    monkeypatch.setitem(sys.modules, "pyautogui", fake_pyautogui)
+
+    response = asyncio.run(
+        dispatch_command(
+            {"id": "1", "type": "mouse_click", "params": {"x": 0, "y": 0, "button": "left", "clicks": 1}},
+            config(dry_run=False),
+        )
+    )
+
+    assert response["status"] == "failure"
+    assert "fail-safe" in response["message"]
+
+
+def test_mouse_click_reports_failsafe_exception_when_cursor_is_in_corner(monkeypatch):
+    class FailSafeException(Exception):
+        pass
+
+    def click(**_kwargs):
+        raise FailSafeException()
+
+    fake_pyautogui = SimpleNamespace(
+        FailSafeException=FailSafeException,
+        click=click,
+        size=lambda: (1920, 1080),
+    )
+    monkeypatch.setitem(sys.modules, "pyautogui", fake_pyautogui)
+
+    response = asyncio.run(
+        dispatch_command(
+            {"id": "1", "type": "mouse_click", "params": {"x": 10, "y": 20, "button": "left", "clicks": 1}},
+            config(dry_run=False),
+        )
+    )
+
+    assert response["status"] == "failure"
+    assert "Mova o mouse" in response["message"]
 
 
 def test_resolve_executable_accepts_existing_explicit_path(tmp_path):

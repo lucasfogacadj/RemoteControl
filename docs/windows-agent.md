@@ -58,7 +58,7 @@ python -m windows_agent.agent
 
 Mantenha a sessao Windows desbloqueada e visivel. O agente abre o arquivo configurado no VS Code antes de digitar, mas automacao de GUI ainda depende do foco real da sessao.
 
-Clicks de mouse sao configurados no hub com coordenadas absolutas da tela, botao (`left`, `right` ou `middle`) e quantidade de clicks. Revise esses valores em dry-run antes de ativar execucao real, especialmente em ambientes com mais de um monitor ou mudanca de resolucao.
+Clicks de mouse sao configurados no hub com coordenadas absolutas da tela, botao (`left`, `right` ou `middle`) e quantidade de clicks. Revise esses valores em dry-run antes de ativar execucao real, especialmente em ambientes com mais de um monitor ou mudanca de resolucao. Nao use os cantos da tela como alvo de click: o PyAutoGUI usa os cantos como fail-safe. Se o fail-safe disparar, mova o cursor para fora dos cantos antes de retomar a automacao.
 
 ## Inicializacao no logon
 

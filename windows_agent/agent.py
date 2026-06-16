@@ -18,6 +18,10 @@ import webbrowser
 
 SUPPORTED_COMMANDS = {"vscode_type_random_text", "open_discord", "open_gmail", "mouse_click"}
 MOUSE_BUTTONS = {"left", "right", "middle"}
+PYAUTOGUI_FAILSAFE_MESSAGE = (
+    "PyAutoGUI bloqueou a automacao porque o cursor esta em um canto da tela. "
+    "Mova o mouse para fora dos cantos e tente novamente."
+)
 
 
 @dataclass(frozen=True)
@@ -127,6 +131,16 @@ def result(command: dict[str, Any], status: str, message: str) -> dict[str, Any]
     }
 
 
+def is_mouse_failsafe_point(pyautogui: Any, x: int, y: int) -> bool:
+    width, height = pyautogui.size()
+    return (x, y) in {
+        (0, 0),
+        (0, height - 1),
+        (width - 1, 0),
+        (width - 1, height - 1),
+    }
+
+
 async def dispatch_command(command: dict[str, Any], config: AgentConfig) -> dict[str, Any]:
     command_type = str(command.get("type", ""))
     if command_type not in SUPPORTED_COMMANDS:
@@ -197,9 +211,12 @@ async def handle_vscode(command: dict[str, Any], config: AgentConfig) -> dict[st
     except ImportError:
         return result(command, "failure", "pyautogui nao instalado no agente Windows.")
 
-    pyautogui.hotkey("ctrl", "end")
-    pyautogui.press("enter")
-    pyautogui.write(text, interval=0.03)
+    try:
+        pyautogui.hotkey("ctrl", "end")
+        pyautogui.press("enter")
+        pyautogui.write(text, interval=0.03)
+    except pyautogui.FailSafeException:
+        return result(command, "failure", PYAUTOGUI_FAILSAFE_MESSAGE)
     return result(command, "success", f"Texto digitado em {target_file}.")
 
 
@@ -260,7 +277,17 @@ async def handle_mouse_click(command: dict[str, Any], config: AgentConfig) -> di
     except ImportError:
         return result(command, "failure", "pyautogui nao instalado no agente Windows.")
 
-    pyautogui.click(x=x, y=y, button=button, clicks=clicks)
+    if is_mouse_failsafe_point(pyautogui, x, y):
+        return result(
+            command,
+            "failure",
+            "Coordenada do click coincide com um canto de fail-safe do PyAutoGUI. Escolha um ponto afastado dos cantos.",
+        )
+
+    try:
+        pyautogui.click(x=x, y=y, button=button, clicks=clicks)
+    except pyautogui.FailSafeException:
+        return result(command, "failure", PYAUTOGUI_FAILSAFE_MESSAGE)
     await asyncio.sleep(0.2)
     return result(command, "success", f"Mouse clicado em ({x}, {y}) com botao {button} {clicks} vez(es).")
 
