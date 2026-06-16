@@ -5,7 +5,9 @@ import asyncio
 from dataclasses import dataclass
 import json
 import os
+from pathlib import Path
 import random
+import shutil
 import string
 import subprocess
 import time
@@ -65,6 +67,51 @@ def random_text(length: int) -> str:
     return text or "control"
 
 
+def existing_path(value: str | None) -> str | None:
+    if not value:
+        return None
+    expanded = os.path.expandvars(os.path.expanduser(value))
+    return expanded if Path(expanded).exists() else None
+
+
+def resolve_executable(configured: str, common_paths: list[str]) -> str | None:
+    if configured:
+        configured_path = existing_path(configured)
+        if configured_path:
+            return configured_path
+        located = shutil.which(configured)
+        if located:
+            return located
+
+    for path in common_paths:
+        found = existing_path(path)
+        if found:
+            return found
+    return None
+
+
+def vscode_executable(config: AgentConfig) -> str | None:
+    return resolve_executable(
+        config.vscode_executable,
+        [
+            r"%LocalAppData%\Programs\Microsoft VS Code\Code.exe",
+            r"%ProgramFiles%\Microsoft VS Code\Code.exe",
+            r"%ProgramFiles(x86)%\Microsoft VS Code\Code.exe",
+        ],
+    )
+
+
+def chrome_executable(config: AgentConfig) -> str | None:
+    return resolve_executable(
+        config.chrome_executable,
+        [
+            r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
+            r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe",
+            r"%LocalAppData%\Google\Chrome\Application\chrome.exe",
+        ],
+    )
+
+
 def result(command: dict[str, Any], status: str, message: str) -> dict[str, Any]:
     return {
         "type": "result",
@@ -109,7 +156,13 @@ async def handle_vscode(command: dict[str, Any], config: AgentConfig) -> dict[st
     if config.dry_run:
         return result(command, "success", f"Dry-run VS Code: abriria {target_file} e digitaria {len(text)} caracteres.")
 
-    subprocess.Popen([config.vscode_executable, target_file])
+    executable = vscode_executable(config)
+    if executable:
+        subprocess.Popen([executable, target_file])
+    elif os.name == "nt":
+        os.startfile(target_file)  # type: ignore[attr-defined]
+    else:
+        return result(command, "failure", "VS Code nao encontrado no PATH nem nos caminhos padrao.")
     await asyncio.sleep(2.5)
 
     try:
@@ -144,10 +197,13 @@ async def handle_gmail(command: dict[str, Any], config: AgentConfig) -> dict[str
     if config.dry_run:
         return result(command, "success", f"Dry-run Gmail: abriria {url}.")
 
-    if config.chrome_executable:
-        subprocess.Popen([config.chrome_executable, url])
-    else:
+    executable = chrome_executable(config)
+    if executable:
+        subprocess.Popen([executable, url])
+    elif os.name == "nt":
         webbrowser.open(url)
+    else:
+        return result(command, "failure", "Chrome nao encontrado no PATH nem nos caminhos padrao.")
     await asyncio.sleep(1)
     return result(command, "success", "Chrome aberto no Gmail. Login, se necessario, e manual.")
 
@@ -215,4 +271,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

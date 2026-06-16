@@ -24,6 +24,7 @@ const els = {
 };
 
 let currentSettings = null;
+let formDirty = false;
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -84,7 +85,7 @@ function renderEvents(events) {
   }
 }
 
-function renderState(state) {
+function renderStatus(state) {
   currentSettings = state.settings;
   const settings = state.settings;
   const agent = state.agent;
@@ -100,13 +101,22 @@ function renderState(state) {
   els.intervalSummary.textContent = `${settings.min_interval_seconds}s - ${settings.max_interval_seconds}s`;
   els.targetSummary.textContent = settings.vscode_target_file || "Nao configurado";
   els.commandSummary.textContent = `${state.commands.length} recentes`;
+  renderEvents(state.events);
+}
 
+function renderSettingsForm(settings) {
   els.vscodeTargetFile.value = settings.vscode_target_file || "";
   els.vscodeTextLength.value = settings.vscode_text_length;
   els.minInterval.value = settings.min_interval_seconds;
   els.maxInterval.value = settings.max_interval_seconds;
   renderRoutines(settings.routines);
-  renderEvents(state.events);
+}
+
+function renderState(state, options = {}) {
+  renderStatus(state);
+  if (!formDirty || options.forceForm) {
+    renderSettingsForm(state.settings);
+  }
 }
 
 async function refresh() {
@@ -141,8 +151,10 @@ els.settingsForm.addEventListener("submit", async (event) => {
       method: "PUT",
       body: JSON.stringify(collectSettings()),
     });
+    formDirty = false;
     els.formMessage.textContent = "Configuracao salva.";
-    await refresh();
+    const state = await api(stateUrl);
+    renderState(state, { forceForm: true });
   } catch (error) {
     els.formMessage.textContent = error.message;
     els.formMessage.classList.add("error");
@@ -165,6 +177,14 @@ els.toggleButton.addEventListener("click", async () => {
 
 els.refreshButton.addEventListener("click", refresh);
 
+els.settingsForm.addEventListener("input", () => {
+  formDirty = true;
+});
+
+els.settingsForm.addEventListener("change", () => {
+  formDirty = true;
+});
+
 refresh().catch((error) => {
   els.formMessage.textContent = error.message;
   els.formMessage.classList.add("error");
@@ -173,4 +193,3 @@ refresh().catch((error) => {
 window.setInterval(() => {
   refresh().catch(() => {});
 }, 5000);
-

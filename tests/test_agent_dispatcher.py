@@ -1,6 +1,6 @@
 import asyncio
 
-from windows_agent.agent import AgentConfig, dispatch_command
+from windows_agent.agent import AgentConfig, dispatch_command, resolve_executable
 
 
 def config(**overrides):
@@ -38,3 +38,20 @@ def test_gmail_dry_run_succeeds_without_opening_browser():
 
     assert response["status"] == "success"
     assert "Dry-run" in response["message"]
+
+
+def test_resolve_executable_accepts_existing_explicit_path(tmp_path):
+    executable = tmp_path / "tool.exe"
+    executable.write_text("", encoding="utf-8")
+
+    assert resolve_executable(str(executable), []) == str(executable)
+
+
+def test_resolve_executable_uses_common_paths(tmp_path, monkeypatch):
+    root = tmp_path / "Programs"
+    executable = root / "App" / "tool.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_text("", encoding="utf-8")
+    monkeypatch.setenv("LOCALAPPDATA", str(root))
+
+    assert resolve_executable("", [r"%LocalAppData%\App\tool.exe"]) == str(executable)
