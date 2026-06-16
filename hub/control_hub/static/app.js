@@ -185,6 +185,10 @@ els.settingsForm.addEventListener("change", () => {
   formDirty = true;
 });
 
+els.settingsForm.addEventListener("focusin", () => {
+  formDirty = true;
+});
+
 refresh().catch((error) => {
   els.formMessage.textContent = error.message;
   els.formMessage.classList.add("error");
