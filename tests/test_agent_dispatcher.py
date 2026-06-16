@@ -33,6 +33,20 @@ def test_vscode_requires_target_file():
     assert "Arquivo alvo" in response["message"]
 
 
+def test_vscode_reports_missing_target_parent_when_active(tmp_path):
+    missing_file = tmp_path / "missing" / "target.txt"
+
+    response = asyncio.run(
+        dispatch_command(
+            {"id": "1", "type": "vscode_type_random_text", "params": {"target_file": str(missing_file)}},
+            config(dry_run=False, vscode_executable=""),
+        )
+    )
+
+    assert response["status"] == "failure"
+    assert "Pasta do arquivo alvo" in response["message"]
+
+
 def test_gmail_dry_run_succeeds_without_opening_browser():
     response = asyncio.run(dispatch_command({"id": "1", "type": "open_gmail", "params": {}}, config()))
 

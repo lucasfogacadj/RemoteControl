@@ -67,10 +67,14 @@ def random_text(length: int) -> str:
     return text or "control"
 
 
+def expand_path(value: str) -> str:
+    return os.path.expandvars(os.path.expanduser(value))
+
+
 def existing_path(value: str | None) -> str | None:
     if not value:
         return None
-    expanded = os.path.expandvars(os.path.expanduser(value))
+    expanded = expand_path(value)
     return expanded if Path(expanded).exists() else None
 
 
@@ -145,6 +149,12 @@ async def handle_vscode(command: dict[str, Any], config: AgentConfig) -> dict[st
     target_file = str(params.get("target_file") or config.vscode_target_file).strip()
     if not target_file:
         return result(command, "failure", "Arquivo alvo do VS Code nao configurado.")
+    target_file = expand_path(target_file)
+    target_path = Path(target_file)
+    if target_path.exists() and target_path.is_dir():
+        return result(command, "failure", f"Arquivo alvo do VS Code aponta para uma pasta: {target_file}")
+    if not target_path.parent.exists():
+        return result(command, "failure", f"Pasta do arquivo alvo nao existe no Windows: {target_path.parent}")
 
     try:
         text_length = int(params.get("text_length", 80))
@@ -158,9 +168,23 @@ async def handle_vscode(command: dict[str, Any], config: AgentConfig) -> dict[st
 
     executable = vscode_executable(config)
     if executable:
-        subprocess.Popen([executable, target_file])
+        try:
+            subprocess.Popen([executable, target_file])
+        except FileNotFoundError:
+            return result(command, "failure", f"Executavel do VS Code nao encontrado: {executable}")
+        except OSError as exc:
+            return result(command, "failure", f"Falha ao abrir VS Code em {target_file}: {exc}")
     elif os.name == "nt":
-        os.startfile(target_file)  # type: ignore[attr-defined]
+        if not target_path.exists():
+            return result(
+                command,
+                "failure",
+                f"VS Code nao encontrado e arquivo alvo ainda nao existe para abertura por associacao: {target_file}",
+            )
+        try:
+            os.startfile(target_file)  # type: ignore[attr-defined]
+        except OSError as exc:
+            return result(command, "failure", f"Falha ao abrir arquivo alvo no Windows: {target_file}. Detalhe: {exc}")
     else:
         return result(command, "failure", "VS Code nao encontrado no PATH nem nos caminhos padrao.")
     await asyncio.sleep(2.5)

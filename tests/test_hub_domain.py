@@ -22,11 +22,19 @@ def test_validate_settings_accepts_default_settings():
     assert sum(routine["percentage"] for routine in settings["routines"] if routine["enabled"]) == 100
 
 
+def test_validate_settings_requires_vscode_file_when_enabled():
+    settings = default_settings()
+    settings["enabled"] = True
+
+    with pytest.raises(SettingsError, match="Arquivo alvo"):
+        validate_settings(settings)
+
+
 def test_choose_routine_uses_weighted_percentages():
     settings = default_settings()
+    settings["vscode_target_file"] = r"C:\Temp\control-typing.txt"
     rng = random.Random(7)
     selected = [choose_routine(settings, rng)["id"] for _ in range(200)]
 
     assert selected.count("vscode_type_random_text") > selected.count("open_discord")
     assert selected.count("vscode_type_random_text") > selected.count("open_gmail")
-

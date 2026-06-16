@@ -97,6 +97,13 @@ def validate_settings(payload: dict[str, Any]) -> dict[str, Any]:
         raise SettingsError("A soma dos percentuais das rotinas habilitadas deve ser 100.")
 
     settings["vscode_target_file"] = str(settings.get("vscode_target_file", "")).strip()
+    vscode_enabled = any(
+        item["id"] == "vscode_type_random_text" and item["enabled"] and item["percentage"] > 0
+        for item in merged
+    )
+    if settings["enabled"] and vscode_enabled and not settings["vscode_target_file"]:
+        raise SettingsError("Arquivo alvo do VS Code deve ser configurado quando a rotina VS Code estiver ativa.")
+
     settings["routines"] = merged
     return settings
 
@@ -132,4 +139,3 @@ def build_command(routine: dict[str, Any], settings: dict[str, Any]) -> dict[str
     if routine_id == "open_gmail":
         return {"type": routine_id, "params": {"url": "https://mail.google.com/"}}
     raise SettingsError(f"Rotina nao suportada: {routine_id}")
-

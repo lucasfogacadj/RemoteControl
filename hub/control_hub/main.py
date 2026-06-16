@@ -83,7 +83,10 @@ def toggle(payload: dict[str, bool] = Body(...)) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail="Campo 'enabled' e obrigatorio.")
     settings = store.get_settings()
     settings["enabled"] = bool(payload["enabled"])
-    saved = store.save_settings(settings)
+    try:
+        saved = store.save_settings(settings)
+    except SettingsError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     status = "ativada" if saved["enabled"] else "desativada"
     store.record_event("settings", "ok", f"Automacao {status}.")
     if not saved["enabled"]:
@@ -134,4 +137,3 @@ async def agent_socket(
     finally:
         await agent_manager.disconnect(agent_id)
         store.set_agent_offline(agent_id, "disconnected")
-
