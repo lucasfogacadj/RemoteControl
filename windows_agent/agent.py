@@ -36,8 +36,8 @@ class AgentConfig:
     discord_executable: str
     chrome_executable: str
     reconnect_seconds: float
-    websocket_ping_interval_seconds: float
-    websocket_ping_timeout_seconds: float
+    websocket_ping_interval_seconds: float | None
+    websocket_ping_timeout_seconds: float | None
 
 
 def env_bool(name: str, default: bool) -> bool:
@@ -55,6 +55,20 @@ def env_float(name: str, default: float, minimum: float) -> float:
     return max(minimum, value)
 
 
+def env_optional_float(name: str, default: float | None, minimum: float) -> float | None:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"", "0", "false", "no", "off", "none", "disabled"}:
+        return None
+    try:
+        parsed = float(normalized)
+    except ValueError:
+        return default
+    return max(minimum, parsed)
+
+
 def load_config() -> AgentConfig:
     return AgentConfig(
         hub_ws_url=os.getenv("CONTROL_HUB_WS_URL", "ws://localhost:8080/ws/agent"),
@@ -67,8 +81,8 @@ def load_config() -> AgentConfig:
         discord_executable=os.getenv("DISCORD_EXECUTABLE", ""),
         chrome_executable=os.getenv("CHROME_EXECUTABLE", "chrome"),
         reconnect_seconds=env_float("CONTROL_AGENT_RECONNECT_SECONDS", 5, 1),
-        websocket_ping_interval_seconds=env_float("CONTROL_AGENT_WS_PING_INTERVAL_SECONDS", 20, 1),
-        websocket_ping_timeout_seconds=env_float("CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS", 20, 1),
+        websocket_ping_interval_seconds=env_optional_float("CONTROL_AGENT_WS_PING_INTERVAL_SECONDS", 20, 1),
+        websocket_ping_timeout_seconds=env_optional_float("CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS", None, 1),
     )
 
 
@@ -442,6 +456,8 @@ def main() -> None:
                     "has_pairing_token": bool(config.pairing_token),
                     "heartbeat_seconds": config.heartbeat_seconds,
                     "reconnect_seconds": config.reconnect_seconds,
+                    "websocket_ping_interval_seconds": config.websocket_ping_interval_seconds,
+                    "websocket_ping_timeout_seconds": config.websocket_ping_timeout_seconds,
                 },
                 indent=2,
             )

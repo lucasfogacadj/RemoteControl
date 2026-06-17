@@ -8,6 +8,8 @@ import pytest
 from windows_agent.agent import (
     AgentConfig,
     dispatch_command,
+    env_optional_float,
+    load_config,
     random_go_code,
     random_mouse_point,
     resolve_executable,
@@ -29,7 +31,7 @@ def config(**overrides):
         "chrome_executable": "chrome",
         "reconnect_seconds": 5,
         "websocket_ping_interval_seconds": 20,
-        "websocket_ping_timeout_seconds": 20,
+        "websocket_ping_timeout_seconds": None,
     }
     values.update(overrides)
     return AgentConfig(**values)
@@ -197,6 +199,23 @@ def test_run_connection_exits_when_heartbeat_send_fails():
             await asyncio.wait_for(run_connection(BrokenWebSocket(), config(heartbeat_seconds=1)), timeout=1)
 
     asyncio.run(run())
+
+
+def test_optional_float_allows_disabling_websocket_ping(monkeypatch):
+    monkeypatch.setenv("CONTROL_AGENT_WS_PING_INTERVAL_SECONDS", "off")
+    monkeypatch.setenv("CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS", "0")
+
+    assert env_optional_float("CONTROL_AGENT_WS_PING_INTERVAL_SECONDS", 20, 1) is None
+    assert env_optional_float("CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS", 20, 1) is None
+
+
+def test_load_config_disables_websocket_ping_timeout_by_default(monkeypatch):
+    monkeypatch.delenv("CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS", raising=False)
+
+    loaded = load_config()
+
+    assert loaded.websocket_ping_interval_seconds == 20
+    assert loaded.websocket_ping_timeout_seconds is None
 
 
 def test_random_go_code_generates_go_snippet():

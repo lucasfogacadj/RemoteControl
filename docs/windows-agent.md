@@ -57,10 +57,10 @@ O agente envia heartbeat periodico e tenta reconectar sozinho quando o WebSocket
 $env:CONTROL_AGENT_HEARTBEAT_SECONDS="10"
 $env:CONTROL_AGENT_RECONNECT_SECONDS="5"
 $env:CONTROL_AGENT_WS_PING_INTERVAL_SECONDS="20"
-$env:CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS="20"
+$env:CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS="0"
 ```
 
-No hub, `CONTROL_AGENT_HEARTBEAT_TIMEOUT_SECONDS` deve ser maior que o heartbeat do agente. O padrao do hub e 45 segundos.
+No hub, `CONTROL_AGENT_HEARTBEAT_TIMEOUT_SECONDS` deve ser maior que o heartbeat do agente. O padrao do hub e 45 segundos. O valor `0` em `CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS` desativa o fechamento por timeout do ping interno da biblioteca WebSocket; o heartbeat da aplicacao continua ativo.
 
 ## Execucao real
 
