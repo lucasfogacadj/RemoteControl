@@ -10,6 +10,17 @@ class FailingWebSocket:
         raise RuntimeError("socket closed")
 
 
+class CloseableWebSocket:
+    def __init__(self):
+        self.close_code = None
+
+    async def send_json(self, _payload):
+        return None
+
+    async def close(self, code=1000):
+        self.close_code = code
+
+
 def test_agent_manager_send_command_clears_stale_websocket():
     manager = AgentManager()
     asyncio.run(manager.connect("agent-1", FailingWebSocket()))
@@ -17,6 +28,37 @@ def test_agent_manager_send_command_clears_stale_websocket():
     sent = asyncio.run(manager.send_command({"type": "vscode_type_random_text"}))
 
     assert sent is False
+    assert manager.snapshot() == {"connected": False, "agent_id": None}
+
+
+def test_agent_manager_disconnect_ignores_replaced_websocket():
+    manager = AgentManager()
+    first = CloseableWebSocket()
+    second = CloseableWebSocket()
+
+    asyncio.run(manager.connect("agent-1", first))
+    asyncio.run(manager.connect("agent-1", second))
+    disconnected_old = asyncio.run(manager.disconnect("agent-1", first))
+
+    assert disconnected_old is False
+    assert manager.snapshot() == {"connected": True, "agent_id": "agent-1"}
+
+    disconnected_current = asyncio.run(manager.disconnect("agent-1", second))
+
+    assert disconnected_current is True
+    assert manager.snapshot() == {"connected": False, "agent_id": None}
+
+
+def test_agent_manager_disconnects_stale_heartbeat():
+    manager = AgentManager(heartbeat_timeout_seconds=0.1)
+    websocket = CloseableWebSocket()
+    asyncio.run(manager.connect("agent-1", websocket))
+    manager._last_seen_at = time.monotonic() - 1
+
+    stale_agent_id = asyncio.run(manager.disconnect_if_stale())
+
+    assert stale_agent_id == "agent-1"
+    assert websocket.close_code == 4000
     assert manager.snapshot() == {"connected": False, "agent_id": None}
 
 

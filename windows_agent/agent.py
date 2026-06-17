@@ -10,7 +10,7 @@ import random
 import shutil
 import string
 import subprocess
-import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import webbrowser
@@ -35,6 +35,9 @@ class AgentConfig:
     vscode_target_file: str
     discord_executable: str
     chrome_executable: str
+    reconnect_seconds: float
+    websocket_ping_interval_seconds: float
+    websocket_ping_timeout_seconds: float
 
 
 def env_bool(name: str, default: bool) -> bool:
@@ -44,17 +47,28 @@ def env_bool(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def env_float(name: str, default: float, minimum: float) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except ValueError:
+        value = default
+    return max(minimum, value)
+
+
 def load_config() -> AgentConfig:
     return AgentConfig(
         hub_ws_url=os.getenv("CONTROL_HUB_WS_URL", "ws://localhost:8080/ws/agent"),
         pairing_token=os.getenv("CONTROL_PAIRING_TOKEN", "dev-change-me"),
         agent_id=os.getenv("CONTROL_AGENT_ID", "windows-agent"),
         dry_run=env_bool("CONTROL_AGENT_DRY_RUN", True),
-        heartbeat_seconds=float(os.getenv("CONTROL_AGENT_HEARTBEAT_SECONDS", "10")),
+        heartbeat_seconds=env_float("CONTROL_AGENT_HEARTBEAT_SECONDS", 10, 1),
         vscode_executable=os.getenv("VSCODE_EXECUTABLE", "code"),
         vscode_target_file=os.getenv("VSCODE_TARGET_FILE", ""),
         discord_executable=os.getenv("DISCORD_EXECUTABLE", ""),
         chrome_executable=os.getenv("CHROME_EXECUTABLE", "chrome"),
+        reconnect_seconds=env_float("CONTROL_AGENT_RECONNECT_SECONDS", 5, 1),
+        websocket_ping_interval_seconds=env_float("CONTROL_AGENT_WS_PING_INTERVAL_SECONDS", 20, 1),
+        websocket_ping_timeout_seconds=env_float("CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS", 20, 1),
     )
 
 
@@ -254,10 +268,25 @@ async def handle_vscode(command: dict[str, Any], config: AgentConfig) -> dict[st
     try:
         pyautogui.hotkey("ctrl", "end")
         pyautogui.press("enter")
-        pyautogui.write(text, interval=typing_interval)
+        await type_text(pyautogui, text, typing_interval)
     except pyautogui.FailSafeException:
         return result(command, "failure", PYAUTOGUI_FAILSAFE_MESSAGE)
     return result(command, "success", f"Texto digitado em {target_file}.")
+
+
+async def type_text(
+    pyautogui: Any,
+    text: str,
+    typing_interval: float,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> None:
+    for index, character in enumerate(text):
+        if character == "\n":
+            pyautogui.press("enter")
+        else:
+            pyautogui.write(character, interval=0)
+        if typing_interval > 0 and index < len(text) - 1:
+            await sleep(typing_interval)
 
 
 async def handle_discord(command: dict[str, Any], config: AgentConfig) -> dict[str, Any]:
@@ -346,27 +375,54 @@ async def heartbeat_loop(websocket: Any, config: AgentConfig) -> None:
         await asyncio.sleep(config.heartbeat_seconds)
 
 
+async def command_loop(websocket: Any, config: AgentConfig) -> None:
+    async for raw_message in websocket:
+        message = json.loads(raw_message)
+        if message.get("type") != "command":
+            continue
+        command = message.get("command") or {}
+        command_result = await dispatch_command(command, config)
+        await websocket.send(json.dumps(command_result))
+
+
+async def run_connection(websocket: Any, config: AgentConfig) -> None:
+    heartbeat_task = asyncio.create_task(heartbeat_loop(websocket, config))
+    command_task = asyncio.create_task(command_loop(websocket, config))
+    tasks = {heartbeat_task, command_task}
+    try:
+        done, pending = await asyncio.wait(
+            tasks,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        for task in done:
+            task.result()
+    finally:
+        remaining = [task for task in tasks if not task.done()]
+        for task in remaining:
+            task.cancel()
+        if remaining:
+            await asyncio.gather(*remaining, return_exceptions=True)
+
+
 async def run_agent(config: AgentConfig) -> None:
     import websockets
 
     url = build_agent_url(config)
     while True:
         try:
-            async with websockets.connect(url, ping_interval=20) as websocket:
-                heartbeat_task = asyncio.create_task(heartbeat_loop(websocket, config))
-                try:
-                    async for raw_message in websocket:
-                        message = json.loads(raw_message)
-                        if message.get("type") != "command":
-                            continue
-                        command = message.get("command") or {}
-                        command_result = await dispatch_command(command, config)
-                        await websocket.send(json.dumps(command_result))
-                finally:
-                    heartbeat_task.cancel()
+            async with websockets.connect(
+                url,
+                ping_interval=config.websocket_ping_interval_seconds,
+                ping_timeout=config.websocket_ping_timeout_seconds,
+            ) as websocket:
+                await run_connection(websocket, config)
         except Exception as exc:
-            print(f"Agent connection failed: {exc}. Retrying in 5s.", flush=True)
-            time.sleep(5)
+            print(f"Agent connection failed: {exc}. Retrying in {config.reconnect_seconds:g}s.", flush=True)
+        await asyncio.sleep(config.reconnect_seconds)
 
 
 def main() -> None:
@@ -384,6 +440,8 @@ def main() -> None:
                     "dry_run": config.dry_run,
                     "vscode_target_file": config.vscode_target_file,
                     "has_pairing_token": bool(config.pairing_token),
+                    "heartbeat_seconds": config.heartbeat_seconds,
+                    "reconnect_seconds": config.reconnect_seconds,
                 },
                 indent=2,
             )

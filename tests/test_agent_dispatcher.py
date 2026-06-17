@@ -3,7 +3,17 @@ import random
 import sys
 from types import SimpleNamespace
 
-from windows_agent.agent import AgentConfig, dispatch_command, random_go_code, random_mouse_point, resolve_executable
+import pytest
+
+from windows_agent.agent import (
+    AgentConfig,
+    dispatch_command,
+    random_go_code,
+    random_mouse_point,
+    resolve_executable,
+    run_connection,
+    type_text,
+)
 
 
 def config(**overrides):
@@ -17,6 +27,9 @@ def config(**overrides):
         "vscode_target_file": "",
         "discord_executable": "",
         "chrome_executable": "chrome",
+        "reconnect_seconds": 5,
+        "websocket_ping_interval_seconds": 20,
+        "websocket_ping_timeout_seconds": 20,
     }
     values.update(overrides)
     return AgentConfig(**values)
@@ -143,6 +156,47 @@ def test_mouse_click_reports_failsafe_exception_when_cursor_is_in_corner(monkeyp
 
     assert response["status"] == "failure"
     assert "Mova o mouse" in response["message"]
+
+
+def test_type_text_yields_between_characters():
+    delays = []
+    pressed = []
+    written = []
+
+    class FakePyAutoGUI:
+        def press(self, key):
+            pressed.append(key)
+
+        def write(self, character, interval=0):
+            written.append((character, interval))
+
+    async def fake_sleep(delay):
+        delays.append(delay)
+
+    asyncio.run(type_text(FakePyAutoGUI(), "a\nb", 0.25, sleep=fake_sleep))
+
+    assert pressed == ["enter"]
+    assert written == [("a", 0), ("b", 0)]
+    assert delays == [0.25, 0.25]
+
+
+def test_run_connection_exits_when_heartbeat_send_fails():
+    class BrokenWebSocket:
+        async def send(self, _payload):
+            raise RuntimeError("connection lost")
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await asyncio.sleep(10)
+            return "{}"
+
+    async def run():
+        with pytest.raises(RuntimeError, match="connection lost"):
+            await asyncio.wait_for(run_connection(BrokenWebSocket(), config(heartbeat_seconds=1)), timeout=1)
+
+    asyncio.run(run())
 
 
 def test_random_go_code_generates_go_snippet():

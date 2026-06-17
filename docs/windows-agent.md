@@ -28,6 +28,8 @@ $env:CONTROL_HUB_WS_URL="ws://SEU_UBUNTU_SERVER:8080/ws/agent"
 $env:CONTROL_PAIRING_TOKEN="troque-este-token"
 $env:CONTROL_AGENT_ID="windows-desktop-01"
 $env:CONTROL_AGENT_DRY_RUN="true"
+$env:CONTROL_AGENT_HEARTBEAT_SECONDS="10"
+$env:CONTROL_AGENT_RECONNECT_SECONDS="5"
 $env:VSCODE_TARGET_FILE="C:\Temp\control-typing.txt"
 ```
 
@@ -46,6 +48,19 @@ python -m windows_agent.agent
 ```
 
 Com `CONTROL_AGENT_DRY_RUN=true`, o agente conecta, envia heartbeat e responde comandos sem abrir programas.
+
+## Conexao resiliente
+
+O agente envia heartbeat periodico e tenta reconectar sozinho quando o WebSocket cai. Os tempos podem ser ajustados por variaveis:
+
+```powershell
+$env:CONTROL_AGENT_HEARTBEAT_SECONDS="10"
+$env:CONTROL_AGENT_RECONNECT_SECONDS="5"
+$env:CONTROL_AGENT_WS_PING_INTERVAL_SECONDS="20"
+$env:CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS="20"
+```
+
+No hub, `CONTROL_AGENT_HEARTBEAT_TIMEOUT_SECONDS` deve ser maior que o heartbeat do agente. O padrao do hub e 45 segundos.
 
 ## Execucao real
 

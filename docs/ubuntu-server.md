@@ -24,7 +24,10 @@ Troque o token:
 ```bash
 CONTROL_PAIRING_TOKEN=um-token-longo-e-privado
 CONTROL_PORT=8080
+CONTROL_AGENT_HEARTBEAT_TIMEOUT_SECONDS=45
 ```
+
+`CONTROL_AGENT_HEARTBEAT_TIMEOUT_SECONDS` define depois de quantos segundos sem heartbeat o hub marca o agente como offline e limpa a conexao antiga. Mantenha esse valor maior que o `CONTROL_AGENT_HEARTBEAT_SECONDS` usado no Windows.
 
 ## Subir
 
@@ -60,4 +63,3 @@ Para apagar tambem os dados locais:
 ```bash
 docker compose down -v
 ```
-

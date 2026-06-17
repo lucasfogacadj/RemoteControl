@@ -18,23 +18,42 @@ from .store import Store
 
 config = load_config()
 store = Store(config.database_path)
-agent_manager = AgentManager()
+agent_manager = AgentManager(config.agent_heartbeat_timeout_seconds)
 scheduler = RoutineScheduler(store, agent_manager, config.scheduler_tick_seconds)
 scheduler_task: asyncio.Task[Any] | None = None
+agent_watchdog_task: asyncio.Task[Any] | None = None
 static_dir = Path(__file__).parent / "static"
+
+
+async def agent_watchdog_loop() -> None:
+    interval = max(1.0, min(config.agent_heartbeat_timeout_seconds / 3, 10.0))
+    while True:
+        await asyncio.sleep(interval)
+        agent_id = await agent_manager.disconnect_if_stale()
+        if agent_id:
+            store.record_event(
+                "agent",
+                "offline",
+                f"Agente sem heartbeat ha mais de {config.agent_heartbeat_timeout_seconds:g}s: {agent_id}",
+            )
+            store.set_agent_offline(agent_id, "heartbeat timeout")
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global scheduler_task
+    global scheduler_task, agent_watchdog_task
     store.init()
     scheduler_task = asyncio.create_task(scheduler.run())
+    agent_watchdog_task = asyncio.create_task(agent_watchdog_loop())
     try:
         yield
     finally:
         scheduler.stop()
-        if scheduler_task:
-            scheduler_task.cancel()
+        tasks = [task for task in (scheduler_task, agent_watchdog_task) if task]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
 
 app = FastAPI(title="Windows Activity Control", lifespan=lifespan)
@@ -116,7 +135,12 @@ async def agent_socket(
         return
 
     await websocket.accept()
-    await agent_manager.connect(agent_id, websocket)
+    previous_websocket = await agent_manager.connect(agent_id, websocket)
+    if previous_websocket is not None:
+        try:
+            await previous_websocket.close(code=4001)
+        except Exception:
+            pass
     store.touch_agent(agent_id, "connected")
     store.record_event("agent", "ok", f"Agente conectado: {agent_id}")
     try:
@@ -124,6 +148,7 @@ async def agent_socket(
             message = await websocket.receive_json()
             message_type = message.get("type")
             if message_type == "heartbeat":
+                await agent_manager.record_heartbeat(agent_id, websocket)
                 store.touch_agent(agent_id, message.get("message", "heartbeat"))
             elif message_type == "result":
                 command_id = str(message.get("command_id", ""))
@@ -136,7 +161,9 @@ async def agent_socket(
             else:
                 store.record_event("agent", "ignored", f"Mensagem desconhecida: {message_type}")
     except WebSocketDisconnect:
-        store.record_event("agent", "offline", f"Agente desconectado: {agent_id}")
+        pass
     finally:
-        await agent_manager.disconnect(agent_id)
-        store.set_agent_offline(agent_id, "disconnected")
+        disconnected_current = await agent_manager.disconnect(agent_id, websocket)
+        if disconnected_current:
+            store.record_event("agent", "offline", f"Agente desconectado: {agent_id}")
+            store.set_agent_offline(agent_id, "disconnected")
