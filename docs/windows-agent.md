@@ -30,8 +30,12 @@ $env:CONTROL_AGENT_ID="windows-desktop-01"
 $env:CONTROL_AGENT_DRY_RUN="true"
 $env:CONTROL_AGENT_HEARTBEAT_SECONDS="10"
 $env:CONTROL_AGENT_RECONNECT_SECONDS="5"
+$env:CONTROL_AGENT_WS_PING_INTERVAL_SECONDS="0"
+$env:CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS="0"
 $env:VSCODE_TARGET_FILE="C:\Temp\control-typing.txt"
 ```
+
+Para nao precisar setar variaveis a cada terminal, copie `windows_agent/.env.example` para `windows_agent/.env`, preencha os valores locais uma vez e rode o agente normalmente. O arquivo `windows_agent/.env` nao deve ser commitado.
 
 Crie o arquivo alvo antes de habilitar execucao real:
 
@@ -56,11 +60,11 @@ O agente envia heartbeat periodico e tenta reconectar sozinho quando o WebSocket
 ```powershell
 $env:CONTROL_AGENT_HEARTBEAT_SECONDS="10"
 $env:CONTROL_AGENT_RECONNECT_SECONDS="5"
-$env:CONTROL_AGENT_WS_PING_INTERVAL_SECONDS="20"
+$env:CONTROL_AGENT_WS_PING_INTERVAL_SECONDS="0"
 $env:CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS="0"
 ```
 
-No hub, `CONTROL_AGENT_HEARTBEAT_TIMEOUT_SECONDS` deve ser maior que o heartbeat do agente. O padrao do hub e 45 segundos. O valor `0` em `CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS` desativa o fechamento por timeout do ping interno da biblioteca WebSocket; o heartbeat da aplicacao continua ativo.
+No hub, `CONTROL_AGENT_HEARTBEAT_TIMEOUT_SECONDS` deve ser maior que o heartbeat do agente. O padrao do hub e 45 segundos. O valor `0` nas variaveis `CONTROL_AGENT_WS_PING_*` desativa o ping interno da biblioteca WebSocket; o heartbeat da aplicacao continua ativo.
 
 ## Execucao real
 

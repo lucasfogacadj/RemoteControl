@@ -1,4 +1,5 @@
 import asyncio
+import os
 import random
 import sys
 from types import SimpleNamespace
@@ -9,6 +10,7 @@ from windows_agent.agent import (
     AgentConfig,
     dispatch_command,
     env_optional_float,
+    load_env_file,
     load_config,
     random_go_code,
     random_mouse_point,
@@ -30,7 +32,7 @@ def config(**overrides):
         "discord_executable": "",
         "chrome_executable": "chrome",
         "reconnect_seconds": 5,
-        "websocket_ping_interval_seconds": 20,
+        "websocket_ping_interval_seconds": None,
         "websocket_ping_timeout_seconds": None,
     }
     values.update(overrides)
@@ -210,12 +212,37 @@ def test_optional_float_allows_disabling_websocket_ping(monkeypatch):
 
 
 def test_load_config_disables_websocket_ping_timeout_by_default(monkeypatch):
+    monkeypatch.delenv("CONTROL_AGENT_WS_PING_INTERVAL_SECONDS", raising=False)
     monkeypatch.delenv("CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS", raising=False)
 
     loaded = load_config()
 
-    assert loaded.websocket_ping_interval_seconds == 20
+    assert loaded.websocket_ping_interval_seconds is None
     assert loaded.websocket_ping_timeout_seconds is None
+
+
+def test_load_env_file_sets_missing_environment_values(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "CONTROL_AGENT_ID=file-agent",
+                "CONTROL_AGENT_DRY_RUN=false",
+                "IGNORED_WITHOUT_EQUALS",
+                "QUOTED_VALUE=\"hello world\"",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("CONTROL_AGENT_ID", raising=False)
+    monkeypatch.setenv("CONTROL_AGENT_DRY_RUN", "true")
+    monkeypatch.delenv("QUOTED_VALUE", raising=False)
+
+    load_env_file(env_file)
+
+    assert os.environ["CONTROL_AGENT_ID"] == "file-agent"
+    assert os.environ["CONTROL_AGENT_DRY_RUN"] == "true"
+    assert os.environ["QUOTED_VALUE"] == "hello world"
 
 
 def test_random_go_code_generates_go_snippet():

@@ -69,7 +69,27 @@ def env_optional_float(name: str, default: float | None, minimum: float) -> floa
     return max(minimum, parsed)
 
 
+def load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key or key in os.environ:
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        os.environ[key] = value
+
+
 def load_config() -> AgentConfig:
+    load_env_file(Path(__file__).with_name(".env"))
+
     return AgentConfig(
         hub_ws_url=os.getenv("CONTROL_HUB_WS_URL", "ws://localhost:8080/ws/agent"),
         pairing_token=os.getenv("CONTROL_PAIRING_TOKEN", "dev-change-me"),
@@ -81,7 +101,7 @@ def load_config() -> AgentConfig:
         discord_executable=os.getenv("DISCORD_EXECUTABLE", ""),
         chrome_executable=os.getenv("CHROME_EXECUTABLE", "chrome"),
         reconnect_seconds=env_float("CONTROL_AGENT_RECONNECT_SECONDS", 5, 1),
-        websocket_ping_interval_seconds=env_optional_float("CONTROL_AGENT_WS_PING_INTERVAL_SECONDS", 20, 1),
+        websocket_ping_interval_seconds=env_optional_float("CONTROL_AGENT_WS_PING_INTERVAL_SECONDS", None, 1),
         websocket_ping_timeout_seconds=env_optional_float("CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS", None, 1),
     )
 
