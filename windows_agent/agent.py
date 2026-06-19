@@ -18,6 +18,7 @@ import webbrowser
 
 SUPPORTED_COMMANDS = {"vscode_type_random_text", "open_discord", "open_gmail", "mouse_click"}
 MOUSE_BUTTONS = {"left", "right", "middle"}
+COMMAND_BUSY_MESSAGE = "Agente ocupado executando outro comando; tente novamente depois."
 PYAUTOGUI_FAILSAFE_MESSAGE = (
     "PyAutoGUI bloqueou a automacao porque o cursor esta em um canto da tela. "
     "Mova o mouse para fora dos cantos e tente novamente."
@@ -410,13 +411,43 @@ async def heartbeat_loop(websocket: Any, config: AgentConfig) -> None:
 
 
 async def command_loop(websocket: Any, config: AgentConfig) -> None:
-    async for raw_message in websocket:
-        message = json.loads(raw_message)
-        if message.get("type") != "command":
-            continue
-        command = message.get("command") or {}
-        command_result = await dispatch_command(command, config)
-        await websocket.send(json.dumps(command_result))
+    command_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=1)
+    command_busy = asyncio.Event()
+    worker_task = asyncio.create_task(command_worker_loop(websocket, config, command_queue, command_busy))
+    try:
+        async for raw_message in websocket:
+            message = json.loads(raw_message)
+            if message.get("type") != "command":
+                continue
+            command = message.get("command") or {}
+            if command_busy.is_set() or not command_queue.empty():
+                await websocket.send(json.dumps(result(command, "failure", COMMAND_BUSY_MESSAGE)))
+                continue
+            command_queue.put_nowait(command)
+    finally:
+        worker_task.cancel()
+        await asyncio.gather(worker_task, return_exceptions=True)
+
+
+async def command_worker_loop(
+    websocket: Any,
+    config: AgentConfig,
+    command_queue: asyncio.Queue[dict[str, Any]],
+    command_busy: asyncio.Event,
+) -> None:
+    while True:
+        command = await command_queue.get()
+        command_busy.set()
+        try:
+            command_result = await dispatch_command_in_worker(command, config)
+            await websocket.send(json.dumps(command_result))
+        finally:
+            command_busy.clear()
+            command_queue.task_done()
+
+
+async def dispatch_command_in_worker(command: dict[str, Any], config: AgentConfig) -> dict[str, Any]:
+    return await asyncio.to_thread(lambda: asyncio.run(dispatch_command(command, config)))
 
 
 async def run_connection(websocket: Any, config: AgentConfig) -> None:

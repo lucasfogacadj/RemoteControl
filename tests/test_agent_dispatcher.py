@@ -1,14 +1,20 @@
 import asyncio
+import json
 import os
 import random
 import sys
+import time
 from types import SimpleNamespace
 
 import pytest
 
+import windows_agent.agent as agent_module
 from windows_agent.agent import (
     AgentConfig,
+    COMMAND_BUSY_MESSAGE,
+    command_loop,
     dispatch_command,
+    dispatch_command_in_worker,
     env_optional_float,
     load_env_file,
     load_config,
@@ -201,6 +207,72 @@ def test_run_connection_exits_when_heartbeat_send_fails():
             await asyncio.wait_for(run_connection(BrokenWebSocket(), config(heartbeat_seconds=1)), timeout=1)
 
     asyncio.run(run())
+
+
+def test_dispatch_command_in_worker_keeps_event_loop_responsive(monkeypatch):
+    async def slow_dispatch(command, _config):
+        time.sleep(0.2)
+        return {"type": "result", "command_id": command["id"], "status": "success", "message": "done"}
+
+    monkeypatch.setattr(agent_module, "dispatch_command", slow_dispatch)
+
+    async def run():
+        task = asyncio.create_task(dispatch_command_in_worker({"id": "1"}, config()))
+        await asyncio.sleep(0.02)
+
+        start = time.perf_counter()
+        await asyncio.sleep(0.02)
+
+        assert time.perf_counter() - start < 0.1
+        assert not task.done()
+        assert (await task)["status"] == "success"
+
+    asyncio.run(run())
+
+
+def test_command_loop_rejects_new_command_while_worker_is_busy(monkeypatch):
+    async def slow_dispatch(command, _config):
+        time.sleep(0.2)
+        return {"type": "result", "command_id": command["id"], "status": "success", "message": "done"}
+
+    class TwoCommandWebSocket:
+        def __init__(self):
+            self.sent = []
+            self._messages = [
+                {"type": "command", "command": {"id": "1", "type": "vscode_type_random_text"}},
+                {"type": "command", "command": {"id": "2", "type": "vscode_type_random_text"}},
+            ]
+            self._index = 0
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self._index >= len(self._messages):
+                raise StopAsyncIteration
+            message = self._messages[self._index]
+            self._index += 1
+            if self._index == 2:
+                await asyncio.sleep(0.02)
+            return json.dumps(message)
+
+        async def send(self, payload):
+            self.sent.append(json.loads(payload))
+
+    monkeypatch.setattr(agent_module, "dispatch_command", slow_dispatch)
+    websocket = TwoCommandWebSocket()
+
+    asyncio.run(command_loop(websocket, config()))
+
+    assert websocket.sent == [
+        {
+            "type": "result",
+            "command_id": "2",
+            "routine": "vscode_type_random_text",
+            "status": "failure",
+            "message": COMMAND_BUSY_MESSAGE,
+        }
+    ]
 
 
 def test_optional_float_allows_disabling_websocket_ping(monkeypatch):
