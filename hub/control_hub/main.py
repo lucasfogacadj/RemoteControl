@@ -12,14 +12,16 @@ from fastapi.staticfiles import StaticFiles
 from .agent_manager import AgentManager
 from .config import load_config
 from .domain import SettingsError, validate_settings
+from .observability import setup_sentry
 from .scheduler import RoutineScheduler
 from .store import Store
 
 
 config = load_config()
+setup_sentry(config)
 store = Store(config.database_path)
 agent_manager = AgentManager(config.agent_heartbeat_timeout_seconds)
-scheduler = RoutineScheduler(store, agent_manager, config.scheduler_tick_seconds)
+scheduler = RoutineScheduler(store, agent_manager, config.scheduler_tick_seconds, config.command_timeout_seconds)
 scheduler_task: asyncio.Task[Any] | None = None
 agent_watchdog_task: asyncio.Task[Any] | None = None
 static_dir = Path(__file__).parent / "static"

@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "skills": {
+    "sentry": {
+      "name": "sentry",
+      "source": "local",
+      "contentHash": "aa0e533aff9a319b0aef86ad3e543f61b812bf159c27fc9ebb1c7ad97d5db937",
+      "installedAt": "2026-07-01T16:06:22.887Z",
+      "updatedAt": "2026-07-01T16:06:22.909Z",
+      "agents": [
+        "cursor",
+        "claude-code",
+        "windsurf"
+      ],
+      "method": "copy",
+      "global": false
+    }
+  }
+}

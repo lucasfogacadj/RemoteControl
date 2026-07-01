@@ -8,14 +8,22 @@ from uuid import uuid4
 
 from .agent_manager import AgentManager
 from .domain import SettingsError, build_command, choose_routine
+from .observability import capture_exception
 from .store import Store
 
 
 class RoutineScheduler:
-    def __init__(self, store: Store, agent_manager: AgentManager, tick_seconds: float = 1.0):
+    def __init__(
+        self,
+        store: Store,
+        agent_manager: AgentManager,
+        tick_seconds: float = 1.0,
+        command_timeout_seconds: float = 120.0,
+    ):
         self.store = store
         self.agent_manager = agent_manager
         self.tick_seconds = tick_seconds
+        self.command_timeout_seconds = command_timeout_seconds
         self._stop_event = asyncio.Event()
         self._next_run_at = time.monotonic() + 2
 
@@ -27,6 +35,7 @@ class RoutineScheduler:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                capture_exception(exc)
                 self.store.record_event("scheduler", "error", f"Scheduler recuperou apos erro: {exc}")
                 self._next_run_at = time.monotonic() + 10
 
@@ -44,9 +53,22 @@ class RoutineScheduler:
         if now < self._next_run_at:
             return
 
+        timed_out_commands = self.store.timeout_stale_commands(self.command_timeout_seconds)
+        for command in timed_out_commands:
+            self.store.record_event(
+                "command",
+                "timeout",
+                command["timeout_message"],
+                routine=command["type"],
+            )
+
         settings = self.store.get_settings()
         if not settings.get("enabled"):
             self._next_run_at = now + 2
+            return
+
+        if self.store.get_active_command():
+            self._next_run_at = now + max(1.0, self.tick_seconds)
             return
 
         if not self.agent_manager.is_connected():
@@ -64,9 +86,10 @@ class RoutineScheduler:
 
         command_id = str(uuid4())
         command["id"] = command_id
+        self.store.create_command(command_id, command, status="queued")
         sent = await self.agent_manager.send_command(command)
         if sent:
-            self.store.create_command(command_id, command)
+            self.store.mark_command_dispatched(command_id)
             self.store.record_event(
                 "command",
                 "dispatched",
@@ -74,7 +97,9 @@ class RoutineScheduler:
                 routine=command["type"],
             )
         else:
-            self.store.record_event("scheduler", "skipped", "Agente desconectou antes do envio.")
+            message = "Agente desconectou antes do envio."
+            self.store.mark_command_result(command_id, "failure", message)
+            self.store.record_event("scheduler", "skipped", message)
 
         minimum = int(settings["min_interval_seconds"])
         maximum = int(settings["max_interval_seconds"])

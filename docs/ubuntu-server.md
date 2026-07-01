@@ -25,9 +25,16 @@ Troque o token:
 CONTROL_PAIRING_TOKEN=um-token-longo-e-privado
 CONTROL_PORT=8080
 CONTROL_AGENT_HEARTBEAT_TIMEOUT_SECONDS=45
+CONTROL_COMMAND_TIMEOUT_SECONDS=120
+CONTROL_SENTRY_DSN=https://...
+CONTROL_SENTRY_ENVIRONMENT=production
+CONTROL_SENTRY_TRACES_SAMPLE_RATE=0
+CONTROL_SENTRY_SEND_DEFAULT_PII=false
 ```
 
 `CONTROL_AGENT_HEARTBEAT_TIMEOUT_SECONDS` define depois de quantos segundos sem heartbeat o hub marca o agente como offline e limpa a conexao antiga. Mantenha esse valor maior que o `CONTROL_AGENT_HEARTBEAT_SECONDS` usado no Windows.
+
+Com `CONTROL_SENTRY_DSN` preenchido, o hub inicializa o SDK do Sentry antes do FastAPI e captura erros HTTP/WebSocket. PII fica desligado por padrao, e campos sensiveis como `token`, `Authorization` e cookies sao filtrados antes do envio.
 
 ## Subir
 

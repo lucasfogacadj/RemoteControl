@@ -39,6 +39,12 @@ class AgentConfig:
     reconnect_seconds: float
     websocket_ping_interval_seconds: float | None
     websocket_ping_timeout_seconds: float | None
+    command_timeout_seconds: float
+    sentry_dsn: str
+    sentry_environment: str
+    sentry_release: str
+    sentry_traces_sample_rate: float
+    sentry_send_default_pii: bool
 
 
 def env_bool(name: str, default: bool) -> bool:
@@ -54,6 +60,10 @@ def env_float(name: str, default: float, minimum: float) -> float:
     except ValueError:
         value = default
     return max(minimum, value)
+
+
+def env_float_between(name: str, default: float, minimum: float, maximum: float) -> float:
+    return min(maximum, env_float(name, default, minimum))
 
 
 def env_optional_float(name: str, default: float | None, minimum: float) -> float | None:
@@ -104,7 +114,44 @@ def load_config() -> AgentConfig:
         reconnect_seconds=env_float("CONTROL_AGENT_RECONNECT_SECONDS", 5, 1),
         websocket_ping_interval_seconds=env_optional_float("CONTROL_AGENT_WS_PING_INTERVAL_SECONDS", None, 1),
         websocket_ping_timeout_seconds=env_optional_float("CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS", None, 1),
+        command_timeout_seconds=env_float(
+            "CONTROL_AGENT_COMMAND_TIMEOUT_SECONDS",
+            env_float("CONTROL_COMMAND_TIMEOUT_SECONDS", 120, 1),
+            1,
+        ),
+        sentry_dsn=os.getenv("CONTROL_SENTRY_DSN", os.getenv("SENTRY_DSN", "")).strip(),
+        sentry_environment=os.getenv("CONTROL_SENTRY_ENVIRONMENT", os.getenv("SENTRY_ENVIRONMENT", "production")).strip(),
+        sentry_release=os.getenv("CONTROL_SENTRY_RELEASE", os.getenv("SENTRY_RELEASE", "")).strip(),
+        sentry_traces_sample_rate=env_float_between("CONTROL_SENTRY_TRACES_SAMPLE_RATE", 0.0, 0.0, 1.0),
+        sentry_send_default_pii=env_bool("CONTROL_SENTRY_SEND_DEFAULT_PII", False),
     )
+
+
+def setup_sentry(config: AgentConfig) -> bool:
+    if not config.sentry_dsn:
+        return False
+
+    import sentry_sdk
+
+    sentry_sdk.init(
+        dsn=config.sentry_dsn,
+        environment=config.sentry_environment or None,
+        release=config.sentry_release or None,
+        traces_sample_rate=config.sentry_traces_sample_rate,
+        send_default_pii=config.sentry_send_default_pii,
+    )
+    sentry_sdk.set_tag("component", "windows_agent")
+    sentry_sdk.set_tag("agent_id", config.agent_id)
+    return True
+
+
+def capture_exception(exc: BaseException) -> None:
+    try:
+        import sentry_sdk
+
+        sentry_sdk.capture_exception(exc)
+    except Exception:
+        pass
 
 
 def build_agent_url(config: AgentConfig) -> str:
@@ -240,6 +287,7 @@ async def dispatch_command(command: dict[str, Any], config: AgentConfig) -> dict
         if command_type == "mouse_click":
             return await handle_mouse_click(command, config)
     except Exception as exc:  # pragma: no cover - final safety net for runtime automation errors
+        capture_exception(exc)
         return result(command, "failure", f"Erro ao executar {command_type}: {exc}")
 
     return result(command, "failure", f"Comando sem handler: {command_type}")
@@ -447,7 +495,14 @@ async def command_worker_loop(
 
 
 async def dispatch_command_in_worker(command: dict[str, Any], config: AgentConfig) -> dict[str, Any]:
-    return await asyncio.to_thread(lambda: asyncio.run(dispatch_command(command, config)))
+    return await asyncio.to_thread(lambda: asyncio.run(dispatch_command_with_timeout(command, config)))
+
+
+async def dispatch_command_with_timeout(command: dict[str, Any], config: AgentConfig) -> dict[str, Any]:
+    try:
+        return await asyncio.wait_for(dispatch_command(command, config), timeout=config.command_timeout_seconds)
+    except asyncio.TimeoutError:
+        return result(command, "failure", f"Comando excedeu o tempo limite de {config.command_timeout_seconds:g}s.")
 
 
 async def run_connection(websocket: Any, config: AgentConfig) -> None:
@@ -509,12 +564,19 @@ def main() -> None:
                     "reconnect_seconds": config.reconnect_seconds,
                     "websocket_ping_interval_seconds": config.websocket_ping_interval_seconds,
                     "websocket_ping_timeout_seconds": config.websocket_ping_timeout_seconds,
+                    "command_timeout_seconds": config.command_timeout_seconds,
+                    "sentry_enabled": bool(config.sentry_dsn),
+                    "sentry_environment": config.sentry_environment,
+                    "sentry_release": config.sentry_release,
+                    "sentry_traces_sample_rate": config.sentry_traces_sample_rate,
+                    "sentry_send_default_pii": config.sentry_send_default_pii,
                 },
                 indent=2,
             )
         )
         return
 
+    setup_sentry(config)
     asyncio.run(run_agent(config))
 
 
