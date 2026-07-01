@@ -15,6 +15,7 @@ from windows_agent.agent import (
     command_loop,
     dispatch_command,
     dispatch_command_in_worker,
+    dispatch_command_with_timeout,
     env_optional_float,
     load_env_file,
     load_config,
@@ -40,6 +41,12 @@ def config(**overrides):
         "reconnect_seconds": 5,
         "websocket_ping_interval_seconds": None,
         "websocket_ping_timeout_seconds": None,
+        "command_timeout_seconds": 120,
+        "sentry_dsn": "",
+        "sentry_environment": "production",
+        "sentry_release": "",
+        "sentry_traces_sample_rate": 0.0,
+        "sentry_send_default_pii": False,
     }
     values.update(overrides)
     return AgentConfig(**values)
@@ -230,6 +237,24 @@ def test_dispatch_command_in_worker_keeps_event_loop_responsive(monkeypatch):
     asyncio.run(run())
 
 
+def test_dispatch_command_with_timeout_reports_failure(monkeypatch):
+    async def slow_dispatch(command, _config):
+        await asyncio.sleep(0.2)
+        return {"type": "result", "command_id": command["id"], "status": "success", "message": "done"}
+
+    monkeypatch.setattr(agent_module, "dispatch_command", slow_dispatch)
+
+    response = asyncio.run(dispatch_command_with_timeout({"id": "1", "type": "vscode_type_random_text"}, config(command_timeout_seconds=0.05)))
+
+    assert response == {
+        "type": "result",
+        "command_id": "1",
+        "routine": "vscode_type_random_text",
+        "status": "failure",
+        "message": "Comando excedeu o tempo limite de 0.05s.",
+    }
+
+
 def test_command_loop_rejects_new_command_while_worker_is_busy(monkeypatch):
     async def slow_dispatch(command, _config):
         time.sleep(0.2)
@@ -286,11 +311,27 @@ def test_optional_float_allows_disabling_websocket_ping(monkeypatch):
 def test_load_config_disables_websocket_ping_timeout_by_default(monkeypatch):
     monkeypatch.delenv("CONTROL_AGENT_WS_PING_INTERVAL_SECONDS", raising=False)
     monkeypatch.delenv("CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("CONTROL_AGENT_COMMAND_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("CONTROL_COMMAND_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("CONTROL_SENTRY_DSN", raising=False)
+    monkeypatch.delenv("SENTRY_DSN", raising=False)
+    monkeypatch.delenv("CONTROL_SENTRY_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("SENTRY_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("CONTROL_SENTRY_RELEASE", raising=False)
+    monkeypatch.delenv("SENTRY_RELEASE", raising=False)
+    monkeypatch.delenv("CONTROL_SENTRY_TRACES_SAMPLE_RATE", raising=False)
+    monkeypatch.delenv("CONTROL_SENTRY_SEND_DEFAULT_PII", raising=False)
 
     loaded = load_config()
 
     assert loaded.websocket_ping_interval_seconds is None
     assert loaded.websocket_ping_timeout_seconds is None
+    assert loaded.command_timeout_seconds == 120
+    assert loaded.sentry_dsn == ""
+    assert loaded.sentry_environment == "production"
+    assert loaded.sentry_release == ""
+    assert loaded.sentry_traces_sample_rate == 0.0
+    assert loaded.sentry_send_default_pii is False
 
 
 def test_load_env_file_sets_missing_environment_values(tmp_path, monkeypatch):

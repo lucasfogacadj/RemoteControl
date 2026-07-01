@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
 import sqlite3
@@ -8,6 +8,9 @@ import threading
 from typing import Any
 
 from .domain import default_settings, validate_settings
+
+
+ACTIVE_COMMAND_STATUSES = ("queued", "pending", "dispatched")
 
 
 def utc_now() -> str:
@@ -164,6 +167,14 @@ class Store:
             )
             self._conn.commit()
 
+    def mark_command_dispatched(self, command_id: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE commands SET status = ?, updated_at = ? WHERE id = ? AND status = ?",
+                ("dispatched", utc_now(), command_id, "queued"),
+            )
+            self._conn.commit()
+
     def mark_command_result(self, command_id: str, status: str, message: str) -> None:
         with self._lock:
             self._conn.execute(
@@ -180,6 +191,59 @@ class Store:
             )
             self._conn.commit()
             return cursor.rowcount
+
+    def timeout_stale_commands(self, timeout_seconds: float) -> list[dict[str, Any]]:
+        cutoff = (datetime.now(UTC) - timedelta(seconds=timeout_seconds)).isoformat()
+        message = f"Comando sem resposta do agente por mais de {timeout_seconds:g}s."
+        placeholders = ",".join("?" for _ in ACTIVE_COMMAND_STATUSES)
+        with self._lock:
+            rows = self._conn.execute(
+                f"""
+                SELECT id, type, status, payload, created_at, updated_at, result_message
+                FROM commands
+                WHERE status IN ({placeholders}) AND updated_at < ?
+                ORDER BY updated_at ASC
+                """,
+                (*ACTIVE_COMMAND_STATUSES, cutoff),
+            ).fetchall()
+            if rows:
+                ids = [row["id"] for row in rows]
+                id_placeholders = ",".join("?" for _ in ids)
+                self._conn.execute(
+                    f"""
+                    UPDATE commands
+                    SET status = ?, updated_at = ?, result_message = ?
+                    WHERE id IN ({id_placeholders})
+                    """,
+                    ("timeout", utc_now(), message, *ids),
+                )
+                self._conn.commit()
+        output = []
+        for row in rows:
+            item = dict(row)
+            item["payload"] = json.loads(item["payload"])
+            item["timeout_message"] = message
+            output.append(item)
+        return output
+
+    def get_active_command(self) -> dict[str, Any] | None:
+        placeholders = ",".join("?" for _ in ACTIVE_COMMAND_STATUSES)
+        with self._lock:
+            row = self._conn.execute(
+                f"""
+                SELECT id, type, status, payload, created_at, updated_at, result_message
+                FROM commands
+                WHERE status IN ({placeholders})
+                ORDER BY created_at ASC
+                LIMIT 1
+                """,
+                ACTIVE_COMMAND_STATUSES,
+            ).fetchone()
+        if not row:
+            return None
+        item = dict(row)
+        item["payload"] = json.loads(item["payload"])
+        return item
 
     def list_commands(self, limit: int = 20) -> list[dict[str, Any]]:
         with self._lock:

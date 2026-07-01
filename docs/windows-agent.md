@@ -32,6 +32,11 @@ $env:CONTROL_AGENT_HEARTBEAT_SECONDS="10"
 $env:CONTROL_AGENT_RECONNECT_SECONDS="5"
 $env:CONTROL_AGENT_WS_PING_INTERVAL_SECONDS="0"
 $env:CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS="0"
+$env:CONTROL_AGENT_COMMAND_TIMEOUT_SECONDS="120"
+$env:CONTROL_SENTRY_DSN="https://..."
+$env:CONTROL_SENTRY_ENVIRONMENT="production"
+$env:CONTROL_SENTRY_TRACES_SAMPLE_RATE="0"
+$env:CONTROL_SENTRY_SEND_DEFAULT_PII="false"
 $env:VSCODE_TARGET_FILE="C:\Temp\control-typing.txt"
 ```
 
@@ -52,6 +57,8 @@ python -m windows_agent.agent
 ```
 
 Com `CONTROL_AGENT_DRY_RUN=true`, o agente conecta, envia heartbeat e responde comandos sem abrir programas.
+
+Se `CONTROL_SENTRY_DSN` estiver preenchido, o agente envia excecoes capturadas para o Sentry com tags `component=windows_agent` e `agent_id`.
 
 ## Conexao resiliente
 

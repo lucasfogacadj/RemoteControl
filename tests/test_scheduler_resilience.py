@@ -1,8 +1,11 @@
 import asyncio
+from datetime import UTC, datetime, timedelta
 import time
 
 from hub.control_hub.agent_manager import AgentManager
+from hub.control_hub.domain import default_settings
 from hub.control_hub.scheduler import RoutineScheduler
+from hub.control_hub.store import Store
 
 
 class FailingWebSocket:
@@ -109,3 +112,87 @@ def test_scheduler_snapshot_reports_next_run_delay():
 
     assert snapshot["running"] is True
     assert 0 < snapshot["next_run_in_seconds"] <= 3
+
+
+def enabled_vscode_settings():
+    settings = default_settings()
+    settings["enabled"] = True
+    settings["min_interval_seconds"] = 5
+    settings["max_interval_seconds"] = 5
+    settings["vscode_target_file"] = r"C:\Temp\control-target.go"
+    for routine in settings["routines"]:
+        routine["enabled"] = routine["id"] == "vscode_type_random_text"
+        routine["percentage"] = 100 if routine["id"] == "vscode_type_random_text" else 0
+    return settings
+
+
+class RecordingAgentManager:
+    def __init__(self, store=None, result_status=None):
+        self.store = store
+        self.result_status = result_status
+        self.sent = []
+
+    def is_connected(self):
+        return True
+
+    async def send_command(self, command):
+        self.sent.append(command.copy())
+        if self.store and self.result_status:
+            self.store.mark_command_result(command["id"], self.result_status, "done")
+        return True
+
+
+def initialized_store(tmp_path):
+    store = Store(str(tmp_path / "control.db"))
+    store.init()
+    store.save_settings(enabled_vscode_settings())
+    return store
+
+
+def run_due_tick(scheduler):
+    scheduler._next_run_at = 0
+    asyncio.run(scheduler._tick())
+
+
+def test_scheduler_waits_for_active_command_before_dispatch(tmp_path):
+    store = initialized_store(tmp_path)
+    store.create_command("active", {"id": "active", "type": "vscode_type_random_text", "params": {}}, status="dispatched")
+    manager = RecordingAgentManager()
+    scheduler = RoutineScheduler(store, manager, tick_seconds=0, command_timeout_seconds=120)
+
+    run_due_tick(scheduler)
+
+    assert manager.sent == []
+    assert store.get_active_command()["id"] == "active"
+
+
+def test_scheduler_times_out_stale_command_before_dispatching_next(tmp_path):
+    store = initialized_store(tmp_path)
+    store.create_command("old", {"id": "old", "type": "vscode_type_random_text", "params": {}}, status="dispatched")
+    stale_time = (datetime.now(UTC) - timedelta(seconds=10)).isoformat()
+    with store._lock:
+        store._conn.execute("UPDATE commands SET created_at = ?, updated_at = ? WHERE id = ?", (stale_time, stale_time, "old"))
+        store._conn.commit()
+    manager = RecordingAgentManager()
+    scheduler = RoutineScheduler(store, manager, tick_seconds=0, command_timeout_seconds=5)
+
+    run_due_tick(scheduler)
+
+    commands = {command["id"]: command for command in store.list_commands()}
+    assert commands["old"]["status"] == "timeout"
+    assert commands["old"]["result_message"] == "Comando sem resposta do agente por mais de 5s."
+    assert len(manager.sent) == 1
+    assert any(event["status"] == "timeout" and event["routine"] == "vscode_type_random_text" for event in store.list_events())
+
+
+def test_scheduler_preserves_fast_result_received_during_send(tmp_path):
+    store = initialized_store(tmp_path)
+    manager = RecordingAgentManager(store, result_status="success")
+    scheduler = RoutineScheduler(store, manager, tick_seconds=0, command_timeout_seconds=120)
+
+    run_due_tick(scheduler)
+
+    commands = store.list_commands()
+    assert len(manager.sent) == 1
+    assert commands[0]["status"] == "success"
+    assert commands[0]["result_message"] == "done"

@@ -26,6 +26,7 @@ AnyDesk fica apenas como canal manual de acesso/suporte. O projeto nao automatiz
 ## Inicio rapido do hub
 
 1. Copie `.env.example` para `.env` e troque `CONTROL_PAIRING_TOKEN`.
+   Para habilitar Sentry, preencha `CONTROL_SENTRY_DSN` com o DSN do projeto e ajuste `CONTROL_SENTRY_ENVIRONMENT`/`CONTROL_SENTRY_RELEASE` se desejar.
 2. Suba o hub:
 
 ```powershell
@@ -52,6 +53,7 @@ pip install -r windows_agent\requirements.txt
 $env:CONTROL_HUB_WS_URL="ws://localhost:8080/ws/agent"
 $env:CONTROL_PAIRING_TOKEN="change-this-token"
 $env:CONTROL_AGENT_DRY_RUN="true"
+$env:CONTROL_SENTRY_DSN="https://..."
 python -m windows_agent.agent
 ```
 
