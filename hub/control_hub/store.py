@@ -176,18 +176,31 @@ class Store:
             self._conn.commit()
 
     def mark_command_result(self, command_id: str, status: str, message: str) -> None:
+        placeholders = ",".join("?" for _ in ACTIVE_COMMAND_STATUSES)
         with self._lock:
             self._conn.execute(
-                "UPDATE commands SET status = ?, updated_at = ?, result_message = ? WHERE id = ?",
-                (status, utc_now(), message, command_id),
+                f"""
+                UPDATE commands
+                SET status = ?, updated_at = ?, result_message = ?
+                WHERE id = ? AND status IN ({placeholders})
+                """,
+                (status, utc_now(), message, command_id, *ACTIVE_COMMAND_STATUSES),
             )
             self._conn.commit()
 
     def cancel_pending_commands(self) -> int:
+        return self.cancel_active_commands("Automacao desativada antes do envio.")
+
+    def cancel_active_commands(self, message: str = "Automacao desativada antes da conclusao.") -> int:
+        placeholders = ",".join("?" for _ in ACTIVE_COMMAND_STATUSES)
         with self._lock:
             cursor = self._conn.execute(
-                "UPDATE commands SET status = ?, updated_at = ?, result_message = ? WHERE status IN ('pending', 'queued')",
-                ("cancelled", utc_now(), "Automacao desativada antes do envio."),
+                f"""
+                UPDATE commands
+                SET status = ?, updated_at = ?, result_message = ?
+                WHERE status IN ({placeholders})
+                """,
+                ("cancelled", utc_now(), message, *ACTIVE_COMMAND_STATUSES),
             )
             self._conn.commit()
             return cursor.rowcount

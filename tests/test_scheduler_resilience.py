@@ -24,6 +24,14 @@ class CloseableWebSocket:
         self.close_code = code
 
 
+class RecordingWebSocket:
+    def __init__(self):
+        self.sent = []
+
+    async def send_json(self, payload):
+        self.sent.append(payload)
+
+
 def test_agent_manager_send_command_clears_stale_websocket():
     manager = AgentManager()
     asyncio.run(manager.connect("agent-1", FailingWebSocket()))
@@ -50,6 +58,17 @@ def test_agent_manager_disconnect_ignores_replaced_websocket():
 
     assert disconnected_current is True
     assert manager.snapshot() == {"connected": False, "agent_id": None}
+
+
+def test_agent_manager_sends_cancel_control_message():
+    manager = AgentManager()
+    websocket = RecordingWebSocket()
+    asyncio.run(manager.connect("agent-1", websocket))
+
+    sent = asyncio.run(manager.cancel_active_command())
+
+    assert sent is True
+    assert websocket.sent == [{"type": "control", "action": "cancel_active_command"}]
 
 
 def test_agent_manager_disconnects_stale_heartbeat():
@@ -196,3 +215,17 @@ def test_scheduler_preserves_fast_result_received_during_send(tmp_path):
     assert len(manager.sent) == 1
     assert commands[0]["status"] == "success"
     assert commands[0]["result_message"] == "done"
+
+
+def test_cancel_active_commands_cancels_dispatched_and_ignores_late_result(tmp_path):
+    store = initialized_store(tmp_path)
+    store.create_command("active", {"id": "active", "type": "vscode_type_random_text", "params": {}}, status="dispatched")
+
+    cancelled = store.cancel_active_commands()
+    store.mark_command_result("active", "success", "done")
+
+    commands = {command["id"]: command for command in store.list_commands()}
+    assert cancelled == 1
+    assert commands["active"]["status"] == "cancelled"
+    assert commands["active"]["result_message"] == "Automacao desativada antes da conclusao."
+    assert store.get_active_command() is None
