@@ -62,6 +62,15 @@ app = FastAPI(title="Windows Activity Control", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
+async def cancel_active_automation() -> None:
+    cancelled = store.cancel_active_commands()
+    cancel_signal_sent = await agent_manager.cancel_active_command()
+    if cancelled:
+        store.record_event("command", "cancelled", f"{cancelled} comando(s) ativo(s) cancelado(s).")
+    if cancel_signal_sent:
+        store.record_event("agent", "ok", "Sinal de cancelamento enviado ao agente.")
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(static_dir / "index.html")
@@ -87,7 +96,7 @@ def get_state() -> dict[str, Any]:
 
 
 @app.put("/api/settings")
-def put_settings(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+async def put_settings(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     try:
         settings = validate_settings(payload)
     except SettingsError as exc:
@@ -95,14 +104,12 @@ def put_settings(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     saved = store.save_settings(settings)
     store.record_event("settings", "ok", "Configuracao atualizada.")
     if not saved["enabled"]:
-        cancelled = store.cancel_pending_commands()
-        if cancelled:
-            store.record_event("command", "cancelled", f"{cancelled} comando(s) pendente(s) cancelado(s).")
+        await cancel_active_automation()
     return saved
 
 
 @app.post("/api/toggle")
-def toggle(payload: dict[str, bool] = Body(...)) -> dict[str, Any]:
+async def toggle(payload: dict[str, bool] = Body(...)) -> dict[str, Any]:
     if "enabled" not in payload:
         raise HTTPException(status_code=422, detail="Campo 'enabled' e obrigatorio.")
     settings = store.get_settings()
@@ -114,9 +121,7 @@ def toggle(payload: dict[str, bool] = Body(...)) -> dict[str, Any]:
     status = "ativada" if saved["enabled"] else "desativada"
     store.record_event("settings", "ok", f"Automacao {status}.")
     if not saved["enabled"]:
-        cancelled = store.cancel_pending_commands()
-        if cancelled:
-            store.record_event("command", "cancelled", f"{cancelled} comando(s) pendente(s) cancelado(s).")
+        await cancel_active_automation()
     return saved
 
 

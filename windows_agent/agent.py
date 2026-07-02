@@ -10,6 +10,8 @@ import random
 import shutil
 import string
 import subprocess
+import threading
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -18,11 +20,17 @@ import webbrowser
 
 SUPPORTED_COMMANDS = {"vscode_type_random_text", "open_discord", "open_gmail", "mouse_click"}
 MOUSE_BUTTONS = {"left", "right", "middle"}
+CONTROL_CANCEL_ACTIVE_COMMAND = "cancel_active_command"
 COMMAND_BUSY_MESSAGE = "Agente ocupado executando outro comando; tente novamente depois."
+COMMAND_CANCELLED_MESSAGE = "Comando cancelado pelo hub."
 PYAUTOGUI_FAILSAFE_MESSAGE = (
     "PyAutoGUI bloqueou a automacao porque o cursor esta em um canto da tela. "
     "Mova o mouse para fora dos cantos e tente novamente."
 )
+
+
+class CommandCancelled(Exception):
+    pass
 
 
 @dataclass(frozen=True)
@@ -272,20 +280,50 @@ def random_mouse_point(pyautogui: Any, margin: int, rng: random.Random | None = 
     return rng.randint(min_x, max_x), rng.randint(min_y, max_y)
 
 
-async def dispatch_command(command: dict[str, Any], config: AgentConfig) -> dict[str, Any]:
+def raise_if_cancelled(cancel_event: threading.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise CommandCancelled
+
+
+async def cancellable_sleep(
+    delay: float,
+    cancel_event: threading.Event | None,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> None:
+    if cancel_event is None:
+        await sleep(delay)
+        return
+
+    deadline = time.monotonic() + delay
+    while True:
+        raise_if_cancelled(cancel_event)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        await sleep(min(0.05, remaining))
+
+
+async def dispatch_command(
+    command: dict[str, Any],
+    config: AgentConfig,
+    cancel_event: threading.Event | None = None,
+) -> dict[str, Any]:
     command_type = str(command.get("type", ""))
     if command_type not in SUPPORTED_COMMANDS:
         return result(command, "failure", f"Comando nao suportado: {command_type}")
 
     try:
+        raise_if_cancelled(cancel_event)
         if command_type == "vscode_type_random_text":
-            return await handle_vscode(command, config)
+            return await handle_vscode(command, config, cancel_event)
         if command_type == "open_discord":
-            return await handle_discord(command, config)
+            return await handle_discord(command, config, cancel_event)
         if command_type == "open_gmail":
-            return await handle_gmail(command, config)
+            return await handle_gmail(command, config, cancel_event)
         if command_type == "mouse_click":
-            return await handle_mouse_click(command, config)
+            return await handle_mouse_click(command, config, cancel_event)
+    except CommandCancelled:
+        return result(command, "cancelled", COMMAND_CANCELLED_MESSAGE)
     except Exception as exc:  # pragma: no cover - final safety net for runtime automation errors
         capture_exception(exc)
         return result(command, "failure", f"Erro ao executar {command_type}: {exc}")
@@ -293,7 +331,11 @@ async def dispatch_command(command: dict[str, Any], config: AgentConfig) -> dict
     return result(command, "failure", f"Comando sem handler: {command_type}")
 
 
-async def handle_vscode(command: dict[str, Any], config: AgentConfig) -> dict[str, Any]:
+async def handle_vscode(
+    command: dict[str, Any],
+    config: AgentConfig,
+    cancel_event: threading.Event | None = None,
+) -> dict[str, Any]:
     params = command.get("params") or {}
     target_file = str(params.get("target_file") or config.vscode_target_file).strip()
     if not target_file:
@@ -317,6 +359,7 @@ async def handle_vscode(command: dict[str, Any], config: AgentConfig) -> dict[st
         typing_interval = 0.08
     typing_interval = max(0, min(typing_interval, 2))
 
+    raise_if_cancelled(cancel_event)
     if config.dry_run:
         return result(command, "success", f"Dry-run VS Code: abriria {target_file} e digitaria codigo Go com {len(text)} caracteres.")
 
@@ -341,7 +384,7 @@ async def handle_vscode(command: dict[str, Any], config: AgentConfig) -> dict[st
             return result(command, "failure", f"Falha ao abrir arquivo alvo no Windows: {target_file}. Detalhe: {exc}")
     else:
         return result(command, "failure", "VS Code nao encontrado no PATH nem nos caminhos padrao.")
-    await asyncio.sleep(2.5)
+    await cancellable_sleep(2.5, cancel_event)
 
     try:
         import pyautogui
@@ -349,9 +392,10 @@ async def handle_vscode(command: dict[str, Any], config: AgentConfig) -> dict[st
         return result(command, "failure", "pyautogui nao instalado no agente Windows.")
 
     try:
+        raise_if_cancelled(cancel_event)
         pyautogui.hotkey("ctrl", "end")
         pyautogui.press("enter")
-        await type_text(pyautogui, text, typing_interval)
+        await type_text(pyautogui, text, typing_interval, cancel_event=cancel_event)
     except pyautogui.FailSafeException:
         return result(command, "failure", PYAUTOGUI_FAILSAFE_MESSAGE)
     return result(command, "success", f"Texto digitado em {target_file}.")
@@ -361,18 +405,25 @@ async def type_text(
     pyautogui: Any,
     text: str,
     typing_interval: float,
+    cancel_event: threading.Event | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> None:
     for index, character in enumerate(text):
+        raise_if_cancelled(cancel_event)
         if character == "\n":
             pyautogui.press("enter")
         else:
             pyautogui.write(character, interval=0)
         if typing_interval > 0 and index < len(text) - 1:
-            await sleep(typing_interval)
+            await cancellable_sleep(typing_interval, cancel_event, sleep=sleep)
 
 
-async def handle_discord(command: dict[str, Any], config: AgentConfig) -> dict[str, Any]:
+async def handle_discord(
+    command: dict[str, Any],
+    config: AgentConfig,
+    cancel_event: threading.Event | None = None,
+) -> dict[str, Any]:
+    raise_if_cancelled(cancel_event)
     if config.dry_run:
         return result(command, "success", "Dry-run Discord: abriria ou focaria o Discord.")
 
@@ -382,14 +433,19 @@ async def handle_discord(command: dict[str, Any], config: AgentConfig) -> dict[s
         os.startfile("discord://")  # type: ignore[attr-defined]
     else:
         return result(command, "failure", "Abertura por protocolo Discord exige Windows.")
-    await asyncio.sleep(1)
+    await cancellable_sleep(1, cancel_event)
     return result(command, "success", "Discord aberto ou focado.")
 
 
-async def handle_gmail(command: dict[str, Any], config: AgentConfig) -> dict[str, Any]:
+async def handle_gmail(
+    command: dict[str, Any],
+    config: AgentConfig,
+    cancel_event: threading.Event | None = None,
+) -> dict[str, Any]:
     params = command.get("params") or {}
     url = str(params.get("url") or "https://mail.google.com/")
 
+    raise_if_cancelled(cancel_event)
     if config.dry_run:
         return result(command, "success", f"Dry-run Gmail: abriria {url}.")
 
@@ -400,11 +456,15 @@ async def handle_gmail(command: dict[str, Any], config: AgentConfig) -> dict[str
         webbrowser.open(url)
     else:
         return result(command, "failure", "Chrome nao encontrado no PATH nem nos caminhos padrao.")
-    await asyncio.sleep(1)
+    await cancellable_sleep(1, cancel_event)
     return result(command, "success", "Chrome aberto no Gmail. Login, se necessario, e manual.")
 
 
-async def handle_mouse_click(command: dict[str, Any], config: AgentConfig) -> dict[str, Any]:
+async def handle_mouse_click(
+    command: dict[str, Any],
+    config: AgentConfig,
+    cancel_event: threading.Event | None = None,
+) -> dict[str, Any]:
     params = command.get("params") or {}
     try:
         clicks = int(params.get("clicks", 1))
@@ -420,6 +480,7 @@ async def handle_mouse_click(command: dict[str, Any], config: AgentConfig) -> di
     if not 1 <= margin <= 1000:
         return result(command, "failure", "Margem segura do click do mouse deve ficar entre 1 e 1000 pixels.")
 
+    raise_if_cancelled(cancel_event)
     if config.dry_run:
         return result(command, "success", f"Dry-run Mouse: clicaria {button} em ponto aleatorio com margem {margin}px {clicks} vez(es).")
 
@@ -440,7 +501,7 @@ async def handle_mouse_click(command: dict[str, Any], config: AgentConfig) -> di
         pyautogui.click(x=x, y=y, button=button, clicks=clicks)
     except pyautogui.FailSafeException:
         return result(command, "failure", PYAUTOGUI_FAILSAFE_MESSAGE)
-    await asyncio.sleep(0.2)
+    await cancellable_sleep(0.2, cancel_event)
     return result(command, "success", f"Mouse clicado em ({x}, {y}) com botao {button} {clicks} vez(es).")
 
 
@@ -461,16 +522,22 @@ async def heartbeat_loop(websocket: Any, config: AgentConfig) -> None:
 async def command_loop(websocket: Any, config: AgentConfig) -> None:
     command_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=1)
     command_busy = asyncio.Event()
-    worker_task = asyncio.create_task(command_worker_loop(websocket, config, command_queue, command_busy))
+    cancel_event = threading.Event()
+    worker_task = asyncio.create_task(command_worker_loop(websocket, config, command_queue, command_busy, cancel_event))
     try:
         async for raw_message in websocket:
             message = json.loads(raw_message)
-            if message.get("type") != "command":
+            message_type = message.get("type")
+            if message_type == "control" and message.get("action") == CONTROL_CANCEL_ACTIVE_COMMAND:
+                cancel_event.set()
+                continue
+            if message_type != "command":
                 continue
             command = message.get("command") or {}
             if command_busy.is_set() or not command_queue.empty():
                 await websocket.send(json.dumps(result(command, "failure", COMMAND_BUSY_MESSAGE)))
                 continue
+            cancel_event.clear()
             command_queue.put_nowait(command)
     finally:
         worker_task.cancel()
@@ -482,25 +549,35 @@ async def command_worker_loop(
     config: AgentConfig,
     command_queue: asyncio.Queue[dict[str, Any]],
     command_busy: asyncio.Event,
+    cancel_event: threading.Event,
 ) -> None:
     while True:
         command = await command_queue.get()
         command_busy.set()
         try:
-            command_result = await dispatch_command_in_worker(command, config)
+            command_result = await dispatch_command_in_worker(command, config, cancel_event)
             await websocket.send(json.dumps(command_result))
         finally:
             command_busy.clear()
+            cancel_event.clear()
             command_queue.task_done()
 
 
-async def dispatch_command_in_worker(command: dict[str, Any], config: AgentConfig) -> dict[str, Any]:
-    return await asyncio.to_thread(lambda: asyncio.run(dispatch_command_with_timeout(command, config)))
+async def dispatch_command_in_worker(
+    command: dict[str, Any],
+    config: AgentConfig,
+    cancel_event: threading.Event | None = None,
+) -> dict[str, Any]:
+    return await asyncio.to_thread(lambda: asyncio.run(dispatch_command_with_timeout(command, config, cancel_event)))
 
 
-async def dispatch_command_with_timeout(command: dict[str, Any], config: AgentConfig) -> dict[str, Any]:
+async def dispatch_command_with_timeout(
+    command: dict[str, Any],
+    config: AgentConfig,
+    cancel_event: threading.Event | None = None,
+) -> dict[str, Any]:
     try:
-        return await asyncio.wait_for(dispatch_command(command, config), timeout=config.command_timeout_seconds)
+        return await asyncio.wait_for(dispatch_command(command, config, cancel_event), timeout=config.command_timeout_seconds)
     except asyncio.TimeoutError:
         return result(command, "failure", f"Comando excedeu o tempo limite de {config.command_timeout_seconds:g}s.")
 

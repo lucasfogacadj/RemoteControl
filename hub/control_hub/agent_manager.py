@@ -63,13 +63,22 @@ class AgentManager:
     def snapshot(self) -> dict[str, Any]:
         return {"connected": self.is_connected(), "agent_id": self._agent_id}
 
+    async def send_control(self, action: str) -> bool:
+        return await self._send_json({"type": "control", "action": action})
+
+    async def cancel_active_command(self) -> bool:
+        return await self.send_control("cancel_active_command")
+
     async def send_command(self, command: dict[str, Any]) -> bool:
+        return await self._send_json({"type": "command", "command": command})
+
+    async def _send_json(self, payload: dict[str, Any]) -> bool:
         async with self._send_lock:
             websocket = self._websocket
             if websocket is None:
                 return False
             try:
-                await websocket.send_json({"type": "command", "command": command})
+                await websocket.send_json(payload)
             except Exception:
                 if self._websocket is websocket:
                     self._websocket = None

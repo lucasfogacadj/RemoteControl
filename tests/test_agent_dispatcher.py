@@ -3,6 +3,7 @@ import json
 import os
 import random
 import sys
+import threading
 import time
 from types import SimpleNamespace
 
@@ -11,7 +12,9 @@ import pytest
 import windows_agent.agent as agent_module
 from windows_agent.agent import (
     AgentConfig,
+    COMMAND_CANCELLED_MESSAGE,
     COMMAND_BUSY_MESSAGE,
+    CommandCancelled,
     command_loop,
     dispatch_command,
     dispatch_command_in_worker,
@@ -197,6 +200,41 @@ def test_type_text_yields_between_characters():
     assert delays == [0.25, 0.25]
 
 
+def test_type_text_stops_when_cancelled():
+    cancel_event = threading.Event()
+    written = []
+
+    class FakePyAutoGUI:
+        def press(self, key):
+            raise AssertionError(f"unexpected key press: {key}")
+
+        def write(self, character, interval=0):
+            written.append((character, interval))
+
+    async def fake_sleep(_delay):
+        cancel_event.set()
+
+    with pytest.raises(CommandCancelled):
+        asyncio.run(type_text(FakePyAutoGUI(), "abc", 0.25, cancel_event=cancel_event, sleep=fake_sleep))
+
+    assert written == [("a", 0)]
+
+
+def test_dispatch_command_returns_cancelled_when_cancel_event_is_set():
+    cancel_event = threading.Event()
+    cancel_event.set()
+
+    response = asyncio.run(dispatch_command({"id": "1", "type": "open_gmail", "params": {}}, config(), cancel_event))
+
+    assert response == {
+        "type": "result",
+        "command_id": "1",
+        "routine": "open_gmail",
+        "status": "cancelled",
+        "message": COMMAND_CANCELLED_MESSAGE,
+    }
+
+
 def test_run_connection_exits_when_heartbeat_send_fails():
     class BrokenWebSocket:
         async def send(self, _payload):
@@ -217,7 +255,7 @@ def test_run_connection_exits_when_heartbeat_send_fails():
 
 
 def test_dispatch_command_in_worker_keeps_event_loop_responsive(monkeypatch):
-    async def slow_dispatch(command, _config):
+    async def slow_dispatch(command, _config, _cancel_event=None):
         time.sleep(0.2)
         return {"type": "result", "command_id": command["id"], "status": "success", "message": "done"}
 
@@ -238,7 +276,7 @@ def test_dispatch_command_in_worker_keeps_event_loop_responsive(monkeypatch):
 
 
 def test_dispatch_command_with_timeout_reports_failure(monkeypatch):
-    async def slow_dispatch(command, _config):
+    async def slow_dispatch(command, _config, _cancel_event=None):
         await asyncio.sleep(0.2)
         return {"type": "result", "command_id": command["id"], "status": "success", "message": "done"}
 
@@ -256,7 +294,7 @@ def test_dispatch_command_with_timeout_reports_failure(monkeypatch):
 
 
 def test_command_loop_rejects_new_command_while_worker_is_busy(monkeypatch):
-    async def slow_dispatch(command, _config):
+    async def slow_dispatch(command, _config, _cancel_event=None):
         time.sleep(0.2)
         return {"type": "result", "command_id": command["id"], "status": "success", "message": "done"}
 
@@ -296,6 +334,59 @@ def test_command_loop_rejects_new_command_while_worker_is_busy(monkeypatch):
             "routine": "vscode_type_random_text",
             "status": "failure",
             "message": COMMAND_BUSY_MESSAGE,
+        }
+    ]
+
+
+def test_command_loop_accepts_cancel_control_while_worker_is_busy(monkeypatch):
+    async def wait_for_cancel(command, _config, cancel_event=None):
+        while cancel_event is None or not cancel_event.is_set():
+            await asyncio.sleep(0.005)
+        return {
+            "type": "result",
+            "command_id": command["id"],
+            "routine": command["type"],
+            "status": "cancelled",
+            "message": COMMAND_CANCELLED_MESSAGE,
+        }
+
+    class CancelCommandWebSocket:
+        def __init__(self):
+            self.sent = []
+            self._messages = [
+                {"type": "command", "command": {"id": "1", "type": "vscode_type_random_text"}},
+                {"type": "control", "action": "cancel_active_command"},
+            ]
+            self._index = 0
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self._index >= len(self._messages):
+                await asyncio.sleep(0.08)
+                raise StopAsyncIteration
+            message = self._messages[self._index]
+            self._index += 1
+            if self._index == 2:
+                await asyncio.sleep(0.02)
+            return json.dumps(message)
+
+        async def send(self, payload):
+            self.sent.append(json.loads(payload))
+
+    monkeypatch.setattr(agent_module, "dispatch_command_in_worker", wait_for_cancel)
+    websocket = CancelCommandWebSocket()
+
+    asyncio.run(command_loop(websocket, config()))
+
+    assert websocket.sent == [
+        {
+            "type": "result",
+            "command_id": "1",
+            "routine": "vscode_type_random_text",
+            "status": "cancelled",
+            "message": COMMAND_CANCELLED_MESSAGE,
         }
     ]
 
