@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
@@ -24,6 +25,10 @@ class Store:
         Path(database_path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(database_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA busy_timeout = 5000")
+        self._conn.execute("PRAGMA journal_mode = WAL")
+        self._conn.execute("PRAGMA synchronous = NORMAL")
+        self._settings_cache: dict[str, Any] | None = None
 
     def init(self) -> None:
         with self._lock:
@@ -57,27 +62,50 @@ class Store:
                     updated_at TEXT NOT NULL,
                     result_message TEXT
                 );
+                CREATE INDEX IF NOT EXISTS idx_commands_created_at
+                    ON commands(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_commands_status_created_at
+                    ON commands(status, created_at);
+                CREATE INDEX IF NOT EXISTS idx_commands_status_updated_at
+                    ON commands(status, updated_at);
                 """
             )
-            exists = self._conn.execute("SELECT 1 FROM settings WHERE id = 1").fetchone()
-            if not exists:
+            row = self._conn.execute("SELECT data FROM settings WHERE id = 1").fetchone()
+            if not row:
                 now = utc_now()
+                settings = default_settings()
                 self._conn.execute(
                     "INSERT INTO settings (id, data, updated_at) VALUES (1, ?, ?)",
-                    (json.dumps(default_settings()), now),
+                    (json.dumps(settings), now),
                 )
                 self._conn.execute(
                     "INSERT INTO events (created_at, kind, status, routine, message) VALUES (?, ?, ?, ?, ?)",
                     (now, "system", "ok", None, "Hub inicializado com configuracao padrao."),
                 )
+                self._settings_cache = deepcopy(settings)
+            else:
+                self._settings_cache = validate_settings(json.loads(row["data"]))
             self._conn.commit()
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+    def _get_settings_locked(self) -> dict[str, Any]:
+        if self._settings_cache is not None:
+            return deepcopy(self._settings_cache)
+
+        row = self._conn.execute("SELECT data FROM settings WHERE id = 1").fetchone()
+        if not row:
+            settings = default_settings()
+        else:
+            settings = validate_settings(json.loads(row["data"]))
+        self._settings_cache = deepcopy(settings)
+        return settings
 
     def get_settings(self) -> dict[str, Any]:
         with self._lock:
-            row = self._conn.execute("SELECT data FROM settings WHERE id = 1").fetchone()
-            if not row:
-                return default_settings()
-            return validate_settings(json.loads(row["data"]))
+            return self._get_settings_locked()
 
     def save_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
         validated = validate_settings(settings)
@@ -87,6 +115,7 @@ class Store:
                 (json.dumps(validated), utc_now()),
             )
             self._conn.commit()
+            self._settings_cache = deepcopy(validated)
         return validated
 
     def record_event(
@@ -105,10 +134,13 @@ class Store:
 
     def list_events(self, limit: int = 50) -> list[dict[str, Any]]:
         with self._lock:
-            rows = self._conn.execute(
-                "SELECT id, created_at, kind, status, routine, message FROM events ORDER BY id DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            return self._list_events_locked(limit)
+
+    def _list_events_locked(self, limit: int = 50) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT id, created_at, kind, status, routine, message FROM events ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
         return [dict(row) for row in rows]
 
     def touch_agent(self, agent_id: str, message: str = "heartbeat") -> None:
@@ -141,9 +173,12 @@ class Store:
 
     def get_agent_state(self) -> dict[str, Any]:
         with self._lock:
-            row = self._conn.execute(
-                "SELECT agent_id, online, last_heartbeat, last_message FROM agent_state ORDER BY last_heartbeat DESC LIMIT 1"
-            ).fetchone()
+            return self._get_agent_state_locked()
+
+    def _get_agent_state_locked(self) -> dict[str, Any]:
+        row = self._conn.execute(
+            "SELECT agent_id, online, last_heartbeat, last_message FROM agent_state ORDER BY last_heartbeat DESC LIMIT 1"
+        ).fetchone()
         if not row:
             return {
                 "agent_id": None,
@@ -260,13 +295,25 @@ class Store:
 
     def list_commands(self, limit: int = 20) -> list[dict[str, Any]]:
         with self._lock:
-            rows = self._conn.execute(
-                "SELECT id, type, status, payload, created_at, updated_at, result_message FROM commands ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            return self._list_commands_locked(limit)
+
+    def _list_commands_locked(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT id, type, status, payload, created_at, updated_at, result_message FROM commands ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
         output = []
         for row in rows:
             item = dict(row)
             item["payload"] = json.loads(item["payload"])
             output.append(item)
         return output
+
+    def get_state_snapshot(self, events_limit: int = 50, commands_limit: int = 20) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "settings": self._get_settings_locked(),
+                "agent": self._get_agent_state_locked(),
+                "events": self._list_events_locked(events_limit),
+                "commands": self._list_commands_locked(commands_limit),
+            }

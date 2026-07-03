@@ -229,3 +229,33 @@ def test_cancel_active_commands_cancels_dispatched_and_ignores_late_result(tmp_p
     assert commands["active"]["status"] == "cancelled"
     assert commands["active"]["result_message"] == "Automacao desativada antes da conclusao."
     assert store.get_active_command() is None
+
+
+def test_store_settings_cache_does_not_share_mutable_state(tmp_path):
+    store = Store(str(tmp_path / "control.db"))
+    store.init()
+
+    settings = store.get_settings()
+    settings["enabled"] = True
+    settings["routines"][0]["percentage"] = 1
+
+    cached_settings = store.get_settings()
+
+    assert cached_settings["enabled"] is False
+    assert cached_settings["routines"][0]["percentage"] == 50
+
+
+def test_store_state_snapshot_returns_dashboard_data(tmp_path):
+    store = initialized_store(tmp_path)
+    store.touch_agent("agent-1", "active")
+    store.record_event("command", "success", "done", routine="open_gmail")
+    store.create_command("cmd-1", {"id": "cmd-1", "type": "open_gmail", "params": {}}, status="dispatched")
+    store.mark_command_result("cmd-1", "success", "done")
+
+    snapshot = store.get_state_snapshot()
+
+    assert snapshot["settings"]["enabled"] is True
+    assert snapshot["agent"]["agent_id"] == "agent-1"
+    assert snapshot["agent"]["online"] is True
+    assert snapshot["events"][0]["message"] == "done"
+    assert snapshot["commands"][0]["payload"]["type"] == "open_gmail"
