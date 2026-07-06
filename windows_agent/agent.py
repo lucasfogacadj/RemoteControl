@@ -17,9 +17,12 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import webbrowser
 
+from .mouse_humanizer import bezier_path, choose_interest_point, overshoot_point, safe_bounds
 
-SUPPORTED_COMMANDS = {"vscode_type_random_text", "open_discord", "open_gmail", "mouse_click"}
+
+SUPPORTED_COMMANDS = {"vscode_type_random_text", "open_discord", "open_gmail", "mouse_click", "mouse_move", "scenario"}
 MOUSE_BUTTONS = {"left", "right", "middle"}
+CODE_LANGUAGES = ("go", "python", "js", "typescript", "rust", "java")
 CONTROL_CANCEL_ACTIVE_COMMAND = "cancel_active_command"
 COMMAND_BUSY_MESSAGE = "Agente ocupado executando outro comando; tente novamente depois."
 COMMAND_CANCELLED_MESSAGE = "Comando cancelado pelo hub."
@@ -198,6 +201,112 @@ def random_go_code(length: int) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _extend_lines(lines: list[str], length: int, line_factory: Callable[[], str]) -> str:
+    while len("\n".join(lines)) < length:
+        lines.append(line_factory())
+    return "\n".join(lines) + "\n"
+
+
+def random_python_code(length: int) -> str:
+    name = random_identifier("total")
+    limit = random.randint(3, 9)
+    lines = [
+        "from collections import defaultdict",
+        "",
+        "",
+        "def summarize(values):",
+        f"    {name} = 0",
+        "    buckets = defaultdict(int)",
+        f"    for index, value in enumerate(values[:{limit}]):",
+        f"        {name} += value",
+        "        buckets[index % 3] += value",
+        f"    return {name}, dict(buckets)",
+    ]
+    return _extend_lines(lines, length, lambda: f"print(summarize([{random.randint(1, 9)}, {random.randint(1, 9)}, {random.randint(1, 9)}]))")
+
+
+def random_js_code(length: int) -> str:
+    name = random_identifier("items")
+    limit = random.randint(2, 7)
+    lines = [
+        f"const {name} = [1, 2, 3, 5, 8].slice(0, {limit});",
+        "",
+        f"const total = {name}.reduce((sum, value) => {{",
+        "  return sum + value;",
+        "}, 0);",
+        "",
+        "console.log({ total });",
+    ]
+    return _extend_lines(lines, length, lambda: f"console.debug('trace', total + {random.randint(1, 99)});")
+
+
+def random_typescript_code(length: int) -> str:
+    name = random_identifier("event")
+    lines = [
+        "type ActivityEvent = {",
+        "  id: string;",
+        "  score: number;",
+        "};",
+        "",
+        f"const {name}: ActivityEvent = {{ id: 'evt-{random.randint(10, 99)}', score: {random.randint(1, 10)} }};",
+        "",
+        f"export const normalized = Math.min(1, {name}.score / 10);",
+    ]
+    return _extend_lines(lines, length, lambda: f"console.log('{random_identifier('checkpoint')}', normalized);")
+
+
+def random_rust_code(length: int) -> str:
+    name = random_identifier("total")
+    limit = random.randint(3, 8)
+    lines = [
+        "fn main() {",
+        f"    let mut {name} = 0;",
+        f"    for index in 0..{limit} {{",
+        f"        {name} += index;",
+        "    }",
+        f'    println!("total {{}}", {name});',
+    ]
+    while len("\n".join([*lines, "}"])) < length:
+        lines.append(f'    println!("trace {{}}", {name} + {random.randint(1, 99)});')
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def random_java_code(length: int) -> str:
+    class_name = "Scratch" + "".join(random.choice(string.ascii_uppercase) for _ in range(3))
+    name = random_identifier("total")
+    limit = random.randint(3, 8)
+    lines = [
+        f"public class {class_name} {{",
+        "    public static void main(String[] args) {",
+        f"        int {name} = 0;",
+        f"        for (int i = 0; i < {limit}; i++) {{",
+        f"            {name} += i;",
+        "        }",
+        f'        System.out.println("total " + {name});',
+    ]
+    while len("\n".join([*lines, "    }", "}"])) < length:
+        lines.append(f'        System.out.println("trace " + ({name} + {random.randint(1, 99)}));')
+    lines.extend(["    }", "}"])
+    return "\n".join(lines) + "\n"
+
+
+def random_code(language: str, length: int) -> tuple[str, str]:
+    normalized = str(language or "random").strip().lower()
+    if normalized == "random":
+        normalized = random.choice(CODE_LANGUAGES)
+    generators: dict[str, Callable[[int], str]] = {
+        "go": random_go_code,
+        "python": random_python_code,
+        "js": random_js_code,
+        "typescript": random_typescript_code,
+        "rust": random_rust_code,
+        "java": random_java_code,
+    }
+    generator = generators.get(normalized, random_go_code)
+    return generator(length), normalized if normalized in generators else "go"
+
+
 def expand_path(value: str) -> str:
     return os.path.expandvars(os.path.expanduser(value))
 
@@ -269,15 +378,66 @@ def is_mouse_failsafe_point(pyautogui: Any, x: int, y: int) -> bool:
 
 def random_mouse_point(pyautogui: Any, margin: int, rng: random.Random | None = None) -> tuple[int, int]:
     rng = rng or random
+    return choose_interest_point(pyautogui, margin, rng)
+
+
+def clamp_mouse_destination(pyautogui: Any, x: int, y: int, margin: int) -> tuple[int, int]:
     width, height = pyautogui.size()
-    max_margin_x = max(1, (int(width) - 1) // 2)
-    max_margin_y = max(1, (int(height) - 1) // 2)
-    safe_margin = max(1, min(int(margin), max_margin_x, max_margin_y))
-    min_x = safe_margin
-    max_x = max(safe_margin, int(width) - safe_margin - 1)
-    min_y = safe_margin
-    max_y = max(safe_margin, int(height) - safe_margin - 1)
-    return rng.randint(min_x, max_x), rng.randint(min_y, max_y)
+    min_x, min_y, max_x, max_y = safe_bounds(int(width), int(height), int(margin))
+    return max(min_x, min(int(x), max_x)), max(min_y, min(int(y), max_y))
+
+
+async def move_mouse_humanized(
+    pyautogui: Any,
+    destination: tuple[int, int] | None = None,
+    margin: int = 100,
+    duration_seconds: float = 1.2,
+    overshoot_chance: float = 0.15,
+    cancel_event: threading.Event | None = None,
+    rng: random.Random | None = None,
+) -> tuple[int, int]:
+    rng = rng or random
+    width, height = pyautogui.size()
+    if destination is None:
+        destination = random_mouse_point(pyautogui, margin, rng)
+    else:
+        destination = clamp_mouse_destination(pyautogui, destination[0], destination[1], margin)
+
+    if not hasattr(pyautogui, "moveTo"):
+        return destination
+
+    if hasattr(pyautogui, "position"):
+        current_position = pyautogui.position()
+        start = (int(current_position[0]), int(current_position[1]))
+    else:
+        start = (int(width) // 2, int(height) // 2)
+
+    targets = [destination]
+    if rng.random() < overshoot_chance:
+        targets = [overshoot_point(start, destination, int(width), int(height), margin, rng), destination]
+
+    remaining_start = start
+    total_steps = max(50, min(100, int(duration_seconds * 60)))
+    for target_index, target in enumerate(targets):
+        segment_steps = max(12, total_steps // len(targets))
+        path = bezier_path(remaining_start, target, segment_steps, rng)
+        step_delay = max(0.002, duration_seconds / (segment_steps * len(targets)))
+        for point in path[1:]:
+            raise_if_cancelled(cancel_event)
+            pyautogui.moveTo(point.x, point.y, duration=0)
+            await cancellable_sleep(step_delay, cancel_event)
+        remaining_start = target
+        if target_index == 0 and len(targets) > 1:
+            await cancellable_sleep(rng.uniform(0.05, 0.18), cancel_event)
+
+    drift_x = rng.randint(-3, 3)
+    drift_y = rng.randint(-3, 3)
+    if drift_x or drift_y:
+        final_x, final_y = clamp_mouse_destination(pyautogui, destination[0] + drift_x, destination[1] + drift_y, margin)
+        pyautogui.moveTo(final_x, final_y, duration=0)
+        await cancellable_sleep(rng.uniform(0.04, 0.12), cancel_event)
+        pyautogui.moveTo(destination[0], destination[1], duration=0)
+    return destination
 
 
 def raise_if_cancelled(cancel_event: threading.Event | None) -> None:
@@ -322,6 +482,10 @@ async def dispatch_command(
             return await handle_gmail(command, config, cancel_event)
         if command_type == "mouse_click":
             return await handle_mouse_click(command, config, cancel_event)
+        if command_type == "mouse_move":
+            return await handle_mouse_move(command, config, cancel_event)
+        if command_type == "scenario":
+            return await handle_scenario(command, config, cancel_event)
     except CommandCancelled:
         return result(command, "cancelled", COMMAND_CANCELLED_MESSAGE)
     except Exception as exc:  # pragma: no cover - final safety net for runtime automation errors
@@ -352,16 +516,31 @@ async def handle_vscode(
     except (TypeError, ValueError):
         text_length = 80
     text_length = max(1, min(text_length, 500))
-    text = random_go_code(text_length)
+    code_language = str(params.get("code_language", "random")).strip().lower()
+    text, selected_language = random_code(code_language, text_length)
     try:
         typing_interval = float(params.get("typing_interval_seconds", 0.08))
     except (TypeError, ValueError):
         typing_interval = 0.08
     typing_interval = max(0, min(typing_interval, 2))
+    try:
+        typo_rate = float(params.get("typo_rate", 0.03))
+    except (TypeError, ValueError):
+        typo_rate = 0.03
+    typo_rate = max(0, min(typo_rate, 0.1))
+    try:
+        thinking_pause_chance = float(params.get("thinking_pause_chance", 0.05))
+    except (TypeError, ValueError):
+        thinking_pause_chance = 0.05
+    thinking_pause_chance = max(0, min(thinking_pause_chance, 0.2))
 
     raise_if_cancelled(cancel_event)
     if config.dry_run:
-        return result(command, "success", f"Dry-run VS Code: abriria {target_file} e digitaria codigo Go com {len(text)} caracteres.")
+        return result(
+            command,
+            "success",
+            f"Dry-run VS Code: abriria {target_file} e digitaria codigo {selected_language} com {len(text)} caracteres.",
+        )
 
     executable = vscode_executable(config)
     if executable:
@@ -395,10 +574,18 @@ async def handle_vscode(
         raise_if_cancelled(cancel_event)
         pyautogui.hotkey("ctrl", "end")
         pyautogui.press("enter")
-        await type_text(pyautogui, text, typing_interval, cancel_event=cancel_event)
+        await type_text(
+            pyautogui,
+            text,
+            typing_interval,
+            cancel_event=cancel_event,
+            typo_rate=typo_rate,
+            thinking_pause_chance=thinking_pause_chance,
+            humanize=True,
+        )
     except pyautogui.FailSafeException:
         return result(command, "failure", PYAUTOGUI_FAILSAFE_MESSAGE)
-    return result(command, "success", f"Texto digitado em {target_file}.")
+    return result(command, "success", f"Codigo {selected_language} digitado em {target_file}.")
 
 
 async def type_text(
@@ -407,15 +594,99 @@ async def type_text(
     typing_interval: float,
     cancel_event: threading.Event | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    typo_rate: float = 0.0,
+    thinking_pause_chance: float = 0.0,
+    humanize: bool = False,
+    rng: random.Random | None = None,
 ) -> None:
+    rng = rng or random
     for index, character in enumerate(text):
         raise_if_cancelled(cancel_event)
+        if humanize and _is_line_start(text, index) and _line_at(text, index).lstrip().startswith(("import ", "from ", "use ")):
+            await cancellable_sleep(rng.uniform(0.5, 2.0), cancel_event, sleep=sleep)
+
         if character == "\n":
             pyautogui.press("enter")
         else:
+            if humanize and typo_rate > 0 and rng.random() < typo_rate:
+                await type_corrected_typo(pyautogui, character, cancel_event, sleep, rng)
             pyautogui.write(character, interval=0)
         if typing_interval > 0 and index < len(text) - 1:
-            await cancellable_sleep(typing_interval, cancel_event, sleep=sleep)
+            delay = humanized_key_delay(typing_interval, character, rng) if humanize else typing_interval
+            await cancellable_sleep(delay, cancel_event, sleep=sleep)
+        if humanize and character == "\n" and index < len(text) - 1:
+            await maybe_thinking_pause(text, index, thinking_pause_chance, cancel_event, sleep, rng)
+
+
+def _is_line_start(text: str, index: int) -> bool:
+    return index == 0 or text[index - 1] == "\n"
+
+
+def _line_at(text: str, index: int) -> str:
+    end = text.find("\n", index)
+    if end == -1:
+        end = len(text)
+    return text[index:end]
+
+
+def _line_before(text: str, newline_index: int) -> str:
+    start = text.rfind("\n", 0, newline_index)
+    if start == -1:
+        start = 0
+    else:
+        start += 1
+    return text[start:newline_index]
+
+
+def humanized_key_delay(base_interval: float, character: str, rng: random.Random | None = None) -> float:
+    rng = rng or random
+    if base_interval <= 0:
+        return 0.0
+    if character == "\n":
+        return max(0.3, min(1.2, rng.gauss(0.75, 0.25)))
+    multiplier = 0.7 if character.isalpha() or character == " " else 1.0
+    if character in "{}()[];:,.<>+-=*/\\\"'`":
+        multiplier = 1.5
+    mean = base_interval * multiplier
+    std_dev = max(0.005, base_interval * 0.4)
+    return max(0.01, min(max(0.05, base_interval * 4), rng.gauss(mean, std_dev)))
+
+
+async def type_corrected_typo(
+    pyautogui: Any,
+    correct_character: str,
+    cancel_event: threading.Event | None,
+    sleep: Callable[[float], Awaitable[None]],
+    rng: random.Random,
+) -> None:
+    wrong_count = rng.randint(1, 3)
+    candidates = string.ascii_lowercase + string.digits
+    wrong_text = "".join(rng.choice(candidates) for _ in range(wrong_count))
+    if correct_character and correct_character in wrong_text and len(candidates) > 1:
+        wrong_text = wrong_text.replace(correct_character, rng.choice(candidates.replace(correct_character, "")), 1)
+    for wrong_character in wrong_text:
+        raise_if_cancelled(cancel_event)
+        pyautogui.write(wrong_character, interval=0)
+    await cancellable_sleep(rng.uniform(0.3, 0.8), cancel_event, sleep=sleep)
+    for _ in wrong_text:
+        raise_if_cancelled(cancel_event)
+        pyautogui.press("backspace")
+
+
+async def maybe_thinking_pause(
+    text: str,
+    newline_index: int,
+    thinking_pause_chance: float,
+    cancel_event: threading.Event | None,
+    sleep: Callable[[float], Awaitable[None]],
+    rng: random.Random,
+) -> None:
+    previous_line = _line_before(text, newline_index).strip()
+    if not previous_line or previous_line.endswith(("}", "};", "):", ":", "{")):
+        await cancellable_sleep(rng.uniform(1.0, 4.0), cancel_event, sleep=sleep)
+        return
+    if thinking_pause_chance > 0 and rng.random() < thinking_pause_chance:
+        await cancellable_sleep(rng.uniform(2.0, 6.0), cancel_event, sleep=sleep)
 
 
 async def handle_discord(
@@ -469,8 +740,10 @@ async def handle_mouse_click(
     try:
         clicks = int(params.get("clicks", 1))
         margin = int(params.get("margin", 100))
+        duration_seconds = float(params.get("move_duration_seconds", params.get("duration_seconds", 1.2)))
+        overshoot_chance = float(params.get("overshoot_chance", 0.15))
     except (TypeError, ValueError):
-        return result(command, "failure", "Parametros do click do mouse devem ser numeros inteiros.")
+        return result(command, "failure", "Parametros do click do mouse devem ser numeros validos.")
 
     button = str(params.get("button", "left")).strip().lower()
     if button not in MOUSE_BUTTONS:
@@ -479,10 +752,18 @@ async def handle_mouse_click(
         return result(command, "failure", "Quantidade de clicks do mouse deve ficar entre 1 e 10.")
     if not 1 <= margin <= 1000:
         return result(command, "failure", "Margem segura do click do mouse deve ficar entre 1 e 1000 pixels.")
+    if not 0.5 <= duration_seconds <= 3.0:
+        return result(command, "failure", "Duracao do movimento do mouse deve ficar entre 0.5 e 3 segundos.")
+    if not 0 <= overshoot_chance <= 0.3:
+        return result(command, "failure", "Chance de overshoot do mouse deve ficar entre 0 e 0.3.")
 
     raise_if_cancelled(cancel_event)
     if config.dry_run:
-        return result(command, "success", f"Dry-run Mouse: clicaria {button} em ponto aleatorio com margem {margin}px {clicks} vez(es).")
+        return result(
+            command,
+            "success",
+            f"Dry-run Mouse: moveria com curva e clicaria {button} em ponto aleatorio de interesse com margem {margin}px {clicks} vez(es).",
+        )
 
     try:
         import pyautogui
@@ -498,11 +779,289 @@ async def handle_mouse_click(
         )
 
     try:
+        await move_mouse_humanized(
+            pyautogui,
+            (x, y),
+            margin=margin,
+            duration_seconds=duration_seconds,
+            overshoot_chance=overshoot_chance,
+            cancel_event=cancel_event,
+        )
+        await cancellable_sleep(random.uniform(0.1, 0.5), cancel_event)
         pyautogui.click(x=x, y=y, button=button, clicks=clicks)
     except pyautogui.FailSafeException:
         return result(command, "failure", PYAUTOGUI_FAILSAFE_MESSAGE)
     await cancellable_sleep(0.2, cancel_event)
     return result(command, "success", f"Mouse clicado em ({x}, {y}) com botao {button} {clicks} vez(es).")
+
+
+async def handle_mouse_move(
+    command: dict[str, Any],
+    config: AgentConfig,
+    cancel_event: threading.Event | None = None,
+) -> dict[str, Any]:
+    params = command.get("params") or {}
+    try:
+        margin = int(params.get("margin", 100))
+        duration_seconds = float(params.get("duration_seconds", 1.2))
+        overshoot_chance = float(params.get("overshoot_chance", 0.15))
+    except (TypeError, ValueError):
+        return result(command, "failure", "Parametros do movimento do mouse devem ser numeros validos.")
+
+    if not 1 <= margin <= 1000:
+        return result(command, "failure", "Margem segura do mouse deve ficar entre 1 e 1000 pixels.")
+    if not 0.5 <= duration_seconds <= 3.0:
+        return result(command, "failure", "Duracao do movimento do mouse deve ficar entre 0.5 e 3 segundos.")
+    if not 0 <= overshoot_chance <= 0.3:
+        return result(command, "failure", "Chance de overshoot do mouse deve ficar entre 0 e 0.3.")
+
+    raise_if_cancelled(cancel_event)
+    if config.dry_run:
+        return result(command, "success", f"Dry-run Mouse: moveria para zona de interesse em {duration_seconds:g}s.")
+
+    try:
+        import pyautogui
+    except ImportError:
+        return result(command, "failure", "pyautogui nao instalado no agente Windows.")
+
+    try:
+        x, y = await move_mouse_humanized(
+            pyautogui,
+            margin=margin,
+            duration_seconds=duration_seconds,
+            overshoot_chance=overshoot_chance,
+            cancel_event=cancel_event,
+        )
+    except pyautogui.FailSafeException:
+        return result(command, "failure", PYAUTOGUI_FAILSAFE_MESSAGE)
+    return result(command, "success", f"Mouse movido para ({x}, {y}) em zona de interesse.")
+
+
+async def handle_scenario(
+    command: dict[str, Any],
+    config: AgentConfig,
+    cancel_event: threading.Event | None = None,
+) -> dict[str, Any]:
+    params = command.get("params") or {}
+    scenario_type = str(params.get("scenario_type", "unknown"))
+    actions = params.get("actions") or []
+    if not isinstance(actions, list) or not actions:
+        return result(command, "failure", "Cenario sem acoes validas.")
+
+    raise_if_cancelled(cancel_event)
+    if config.dry_run:
+        return result(command, "success", f"Dry-run Cenario {scenario_type}: executaria {len(actions)} sub-acoes.")
+
+    try:
+        import pyautogui
+    except ImportError:
+        return result(command, "failure", "pyautogui nao instalado no agente Windows.")
+
+    try:
+        for action in actions:
+            error = await execute_scenario_action(pyautogui, action, config, cancel_event)
+            if error:
+                return result(command, "failure", error)
+    except pyautogui.FailSafeException:
+        return result(command, "failure", PYAUTOGUI_FAILSAFE_MESSAGE)
+    return result(command, "success", f"Cenario {scenario_type} executado com {len(actions)} sub-acoes.")
+
+
+async def execute_scenario_action(
+    pyautogui: Any,
+    action: dict[str, Any],
+    config: AgentConfig,
+    cancel_event: threading.Event | None,
+) -> str | None:
+    if not isinstance(action, dict):
+        return "Sub-acao de cenario invalida."
+    action_type = str(action.get("type", "")).strip().lower()
+    raise_if_cancelled(cancel_event)
+
+    if action_type == "wait":
+        minimum = float(action.get("min_seconds", action.get("seconds", 1)))
+        maximum = float(action.get("max_seconds", minimum))
+        await cancellable_sleep(random.uniform(max(0, minimum), max(minimum, maximum)), cancel_event)
+        return None
+
+    if action_type == "open_app":
+        return await open_app_for_scenario(action, config, cancel_event)
+
+    if action_type == "mouse_move":
+        margin = int(action.get("margin", 100))
+        duration = float(action.get("duration_seconds", 1.2))
+        overshoot = float(action.get("overshoot_chance", 0.15))
+        await move_mouse_humanized(pyautogui, margin=margin, duration_seconds=duration, overshoot_chance=overshoot, cancel_event=cancel_event)
+        return None
+
+    if action_type == "mouse_click":
+        button = str(action.get("button", "left")).strip().lower()
+        if button not in MOUSE_BUTTONS:
+            return "Botao do mouse deve ser left, right ou middle."
+        margin = int(action.get("margin", 100))
+        duration = float(action.get("move_duration_seconds", 1.2))
+        overshoot = float(action.get("overshoot_chance", 0.15))
+        clicks = int(action.get("clicks", 1))
+        x, y = await move_mouse_humanized(pyautogui, margin=margin, duration_seconds=duration, overshoot_chance=overshoot, cancel_event=cancel_event)
+        await cancellable_sleep(random.uniform(0.1, 0.5), cancel_event)
+        pyautogui.click(x=x, y=y, button=button, clicks=max(1, min(10, clicks)))
+        return None
+
+    if action_type == "scroll":
+        await humanized_scroll(
+            pyautogui,
+            direction=str(action.get("direction", "down")),
+            bursts=max(1, min(5, int(action.get("bursts", 2)))),
+            cancel_event=cancel_event,
+        )
+        return None
+
+    if action_type == "hotkey":
+        keys = action.get("keys") or []
+        if not isinstance(keys, list) or not keys:
+            return "Hotkey do cenario precisa informar teclas."
+        pyautogui.hotkey(*[str(key) for key in keys])
+        await cancellable_sleep(random.uniform(0.18, 0.75), cancel_event)
+        return None
+
+    if action_type == "alt_tab":
+        await realistic_alt_tab(pyautogui, cancel_event)
+        return None
+
+    if action_type == "type_text":
+        await type_scenario_text(pyautogui, action, cancel_event)
+        return None
+
+    return f"Sub-acao de cenario nao suportada: {action_type}"
+
+
+async def open_app_for_scenario(
+    action: dict[str, Any],
+    config: AgentConfig,
+    cancel_event: threading.Event | None,
+) -> str | None:
+    app = str(action.get("app", "")).strip().lower()
+    if app == "vscode":
+        target_file = expand_path(str(action.get("target_file") or config.vscode_target_file).strip())
+        if not target_file:
+            return "Arquivo alvo do VS Code nao configurado."
+        target_path = Path(target_file)
+        if target_path.exists() and target_path.is_dir():
+            return f"Arquivo alvo do VS Code aponta para uma pasta: {target_file}"
+        if not target_path.parent.exists():
+            return f"Pasta do arquivo alvo nao existe no Windows: {target_path.parent}"
+        executable = vscode_executable(config)
+        if executable:
+            subprocess.Popen([executable, target_file])
+        elif os.name == "nt" and target_path.exists():
+            os.startfile(target_file)  # type: ignore[attr-defined]
+        else:
+            return "VS Code nao encontrado no PATH nem nos caminhos padrao."
+        await cancellable_sleep(2.0, cancel_event)
+        return None
+
+    if app == "discord":
+        if config.discord_executable:
+            subprocess.Popen([config.discord_executable])
+        elif os.name == "nt":
+            os.startfile("discord://")  # type: ignore[attr-defined]
+        else:
+            return "Abertura por protocolo Discord exige Windows."
+        await cancellable_sleep(1.0, cancel_event)
+        return None
+
+    if app == "gmail":
+        url = str(action.get("url") or "https://mail.google.com/")
+        executable = chrome_executable(config)
+        if executable:
+            subprocess.Popen([executable, url])
+        elif os.name == "nt":
+            webbrowser.open(url)
+        else:
+            return "Chrome nao encontrado no PATH nem nos caminhos padrao."
+        await cancellable_sleep(1.0, cancel_event)
+        return None
+
+    return f"App do cenario nao suportado: {app}"
+
+
+async def type_scenario_text(
+    pyautogui: Any,
+    action: dict[str, Any],
+    cancel_event: threading.Event | None,
+) -> None:
+    if str(action.get("text_kind", "")).lower() == "code":
+        try:
+            text_length = int(action.get("text_length", 80))
+        except (TypeError, ValueError):
+            text_length = 80
+        text, _language = random_code(str(action.get("code_language", "random")), max(1, min(500, text_length)))
+    else:
+        text = str(action.get("text", ""))
+    try:
+        interval = float(action.get("typing_interval_seconds", 0.08))
+    except (TypeError, ValueError):
+        interval = 0.08
+    try:
+        typo_rate = float(action.get("typo_rate", 0.03))
+    except (TypeError, ValueError):
+        typo_rate = 0.03
+    try:
+        thinking_pause_chance = float(action.get("thinking_pause_chance", 0.05))
+    except (TypeError, ValueError):
+        thinking_pause_chance = 0.05
+    await type_text(
+        pyautogui,
+        text,
+        max(0.0, min(2.0, interval)),
+        cancel_event=cancel_event,
+        typo_rate=max(0.0, min(0.1, typo_rate)),
+        thinking_pause_chance=max(0.0, min(0.2, thinking_pause_chance)),
+        humanize=True,
+    )
+
+
+async def humanized_scroll(
+    pyautogui: Any,
+    direction: str = "down",
+    bursts: int = 2,
+    cancel_event: threading.Event | None = None,
+    rng: random.Random | None = None,
+) -> None:
+    rng = rng or random
+    normalized = direction.strip().lower()
+    if normalized not in {"up", "down", "random"}:
+        normalized = "down"
+    for _ in range(max(1, bursts)):
+        actual_direction = normalized
+        if actual_direction == "random":
+            actual_direction = "down" if rng.random() < 0.8 else "up"
+        sign = -1 if actual_direction == "down" else 1
+        for _flick in range(rng.randint(2, 5)):
+            raise_if_cancelled(cancel_event)
+            pyautogui.scroll(sign * rng.randint(2, 6))
+            await cancellable_sleep(rng.uniform(0.04, 0.18), cancel_event)
+        if rng.random() < 0.18:
+            pyautogui.scroll(-sign * rng.randint(1, 3))
+        await cancellable_sleep(rng.uniform(0.5, 2.0), cancel_event)
+
+
+async def realistic_alt_tab(
+    pyautogui: Any,
+    cancel_event: threading.Event | None = None,
+    rng: random.Random | None = None,
+) -> None:
+    rng = rng or random
+    tabs = rng.randint(1, 3)
+    pyautogui.keyDown("alt")
+    try:
+        for _ in range(tabs):
+            raise_if_cancelled(cancel_event)
+            pyautogui.press("tab")
+            await cancellable_sleep(rng.uniform(0.12, 0.35), cancel_event)
+        await cancellable_sleep(rng.uniform(0.5, 1.5), cancel_event)
+    finally:
+        pyautogui.keyUp("alt")
 
 
 async def heartbeat_loop(websocket: Any, config: AgentConfig) -> None:

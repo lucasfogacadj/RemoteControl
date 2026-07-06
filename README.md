@@ -17,9 +17,11 @@ AnyDesk fica apenas como canal manual de acesso/suporte. O projeto nao automatiz
 ## Limites de seguranca
 
 - Use somente em maquinas suas ou com autorizacao explicita.
-- O agente executa apenas comandos allowlisted: VS Code, Discord, Chrome/Gmail e click de mouse configurado.
+- O agente executa apenas comandos allowlisted: VS Code, Discord, Chrome/Gmail, movimento/click de mouse e cenarios compostos definidos pelo hub.
 - A digitacao aleatoria e restrita ao arquivo configurado para o VS Code.
-- Clicks de mouse usam pontos aleatorios com margem segura configurada no hub e dependem da sessao Windows visivel.
+- A digitacao do VS Code usa geradores de codigo allowlisted, com linguagem, taxa de erro, pausas e intervalo entre teclas configurados no hub.
+- Movimentos e clicks de mouse usam zonas de interesse, trajetorias curvas e margem segura configurada no hub, e dependem da sessao Windows visivel.
+- O scheduler aplica ritmo diario configuravel, incluindo perfil, almoco, coffee breaks, micro-pausas e cenarios de trabalho.
 - O sistema nao coleta, armazena ou preenche credenciais.
 - Rotinas de GUI exigem sessao Windows interativa ativa.
 

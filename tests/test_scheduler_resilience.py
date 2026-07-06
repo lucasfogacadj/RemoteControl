@@ -4,6 +4,7 @@ import time
 
 from hub.control_hub.agent_manager import AgentManager
 from hub.control_hub.domain import default_settings
+from hub.control_hub.rhythm import RhythmState
 from hub.control_hub.scheduler import RoutineScheduler
 from hub.control_hub.store import Store
 
@@ -92,6 +93,16 @@ class RecordingStore:
         self.events.append({"kind": kind, "status": status, "message": message, "routine": routine})
 
 
+class NeutralRhythm:
+    def evaluate(self, _settings):
+        return RhythmState(energy=0.8, mode="focus", routine_multipliers={})
+
+
+class PausedRhythm:
+    def evaluate(self, _settings):
+        return RhythmState(energy=0.4, mode="browsing", is_pause=True, pause_type="coffee_break", pause_seconds=300)
+
+
 class RecoveringScheduler(RoutineScheduler):
     def __init__(self, store):
         super().__init__(store, AgentManager(), tick_seconds=0)
@@ -177,7 +188,7 @@ def test_scheduler_waits_for_active_command_before_dispatch(tmp_path):
     store = initialized_store(tmp_path)
     store.create_command("active", {"id": "active", "type": "vscode_type_random_text", "params": {}}, status="dispatched")
     manager = RecordingAgentManager()
-    scheduler = RoutineScheduler(store, manager, tick_seconds=0, command_timeout_seconds=120)
+    scheduler = RoutineScheduler(store, manager, tick_seconds=0, command_timeout_seconds=120, rhythm_engine=NeutralRhythm())
 
     run_due_tick(scheduler)
 
@@ -193,7 +204,7 @@ def test_scheduler_times_out_stale_command_before_dispatching_next(tmp_path):
         store._conn.execute("UPDATE commands SET created_at = ?, updated_at = ? WHERE id = ?", (stale_time, stale_time, "old"))
         store._conn.commit()
     manager = RecordingAgentManager()
-    scheduler = RoutineScheduler(store, manager, tick_seconds=0, command_timeout_seconds=5)
+    scheduler = RoutineScheduler(store, manager, tick_seconds=0, command_timeout_seconds=5, rhythm_engine=NeutralRhythm())
 
     run_due_tick(scheduler)
 
@@ -207,7 +218,7 @@ def test_scheduler_times_out_stale_command_before_dispatching_next(tmp_path):
 def test_scheduler_preserves_fast_result_received_during_send(tmp_path):
     store = initialized_store(tmp_path)
     manager = RecordingAgentManager(store, result_status="success")
-    scheduler = RoutineScheduler(store, manager, tick_seconds=0, command_timeout_seconds=120)
+    scheduler = RoutineScheduler(store, manager, tick_seconds=0, command_timeout_seconds=120, rhythm_engine=NeutralRhythm())
 
     run_due_tick(scheduler)
 
@@ -215,6 +226,17 @@ def test_scheduler_preserves_fast_result_received_during_send(tmp_path):
     assert len(manager.sent) == 1
     assert commands[0]["status"] == "success"
     assert commands[0]["result_message"] == "done"
+
+
+def test_scheduler_skips_dispatch_during_rhythm_pause(tmp_path):
+    store = initialized_store(tmp_path)
+    manager = RecordingAgentManager()
+    scheduler = RoutineScheduler(store, manager, tick_seconds=0, command_timeout_seconds=120, rhythm_engine=PausedRhythm())
+
+    run_due_tick(scheduler)
+
+    assert manager.sent == []
+    assert any(event["status"] == "paused" and "coffee_break" in event["message"] for event in store.list_events())
 
 
 def test_cancel_active_commands_cancels_dispatched_and_ignores_late_result(tmp_path):

@@ -53,8 +53,20 @@
               <dd id="targetSummary">-</dd>
             </div>
             <div>
+              <dt>Digitacao</dt>
+              <dd id="typingSummary">-</dd>
+            </div>
+            <div>
               <dt>Mouse</dt>
               <dd id="mouseSummary">-</dd>
+            </div>
+            <div>
+              <dt>Ritmo</dt>
+              <dd id="rhythmSummary">-</dd>
+            </div>
+            <div>
+              <dt>Cenario</dt>
+              <dd id="scenarioSummary">-</dd>
             </div>
             <div>
               <dt>Comandos</dt>
@@ -77,12 +89,32 @@
               <input id="vscodeTargetFile" name="vscodeTargetFile" type="text" placeholder="C:\caminho\arquivo.txt" />
             </label>
             <label>
-              Codigo Go por execucao
+              Codigo por execucao
               <input id="vscodeTextLength" name="vscodeTextLength" type="number" min="1" max="500" />
             </label>
             <label>
               Intervalo entre teclas (s)
               <input id="vscodeTypingInterval" name="vscodeTypingInterval" type="number" min="0" max="2" step="0.01" />
+            </label>
+            <label>
+              Linguagem do codigo
+              <select id="codeLanguage" name="codeLanguage">
+                <option value="random">Aleatoria</option>
+                <option value="go">Go</option>
+                <option value="python">Python</option>
+                <option value="js">JavaScript</option>
+                <option value="typescript">TypeScript</option>
+                <option value="rust">Rust</option>
+                <option value="java">Java</option>
+              </select>
+            </label>
+            <label>
+              Taxa de erro
+              <input id="typoRate" name="typoRate" type="number" min="0" max="0.1" step="0.01" />
+            </label>
+            <label>
+              Chance pausa pensamento
+              <input id="thinkingPauseChance" name="thinkingPauseChance" type="number" min="0" max="0.2" step="0.01" />
             </label>
             <label>
               Botao do mouse
@@ -101,12 +133,57 @@
               <input id="mouseClickMargin" name="mouseClickMargin" type="number" min="1" max="1000" />
             </label>
             <label>
+              Duracao movimento mouse (s)
+              <input id="mouseMoveDuration" name="mouseMoveDuration" type="number" min="0.5" max="3" step="0.1" />
+            </label>
+            <label>
+              Chance overshoot mouse
+              <input id="mouseOvershootChance" name="mouseOvershootChance" type="number" min="0" max="0.3" step="0.01" />
+            </label>
+            <label>
               Intervalo minimo (s)
               <input id="minInterval" name="minInterval" type="number" min="5" />
             </label>
             <label>
               Intervalo maximo (s)
               <input id="maxInterval" name="maxInterval" type="number" min="5" />
+            </label>
+            <label>
+              Perfil
+              <select id="profile" name="profile">
+                <option value="developer_remote">Dev remoto</option>
+                <option value="developer_clt">CLT 9-18</option>
+                <option value="freelancer">Freelancer</option>
+              </select>
+            </label>
+            <label>
+              Almoco inicio
+              <input id="lunchStart" name="lunchStart" type="time" />
+            </label>
+            <label>
+              Almoco fim
+              <input id="lunchEnd" name="lunchEnd" type="time" />
+            </label>
+            <label>
+              Jitter almoco (min)
+              <input id="lunchJitter" name="lunchJitter" type="number" min="0" max="120" />
+            </label>
+            <label>
+              Coffee breaks
+              <input id="coffeeBreakCount" name="coffeeBreakCount" type="number" min="0" max="4" />
+            </label>
+            <label>
+              Jitter inicio (min)
+              <input id="workStartJitter" name="workStartJitter" type="number" min="0" max="180" />
+            </label>
+            <label>
+              Cenario
+              <select id="scenarioType" name="scenarioType">
+                <option value="random">Aleatorio</option>
+                <option value="coding_session">Coding session</option>
+                <option value="email_check">Email check</option>
+                <option value="discord_chat">Discord chat</option>
+              </select>
             </label>
           </div>
 

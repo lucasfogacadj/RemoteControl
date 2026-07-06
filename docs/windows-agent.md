@@ -84,9 +84,13 @@ python -m windows_agent.agent
 
 Mantenha a sessao Windows desbloqueada e visivel. O agente abre o arquivo configurado no VS Code antes de digitar, mas automacao de GUI ainda depende do foco real da sessao.
 
-Clicks de mouse sao configurados no hub com botao (`left`, `right` ou `middle`), quantidade de clicks e margem segura em pixels. O agente escolhe um ponto aleatorio dentro da tela a cada execucao, afastado das bordas pela margem configurada. Revise esses valores em dry-run antes de ativar execucao real, especialmente em ambientes com mais de um monitor ou mudanca de resolucao. O PyAutoGUI usa os cantos como fail-safe; se o fail-safe disparar, mova o cursor para fora dos cantos antes de retomar a automacao.
+Clicks e movimentos de mouse sao configurados no hub com botao (`left`, `right` ou `middle`), quantidade de clicks, margem segura, duracao de movimento e chance de overshoot. O agente escolhe zonas de interesse na tela, move o cursor por trajetorias curvas com pequenos ajustes e so entao clica quando a rotina pede click. Revise esses valores em dry-run antes de ativar execucao real, especialmente em ambientes com mais de um monitor ou mudanca de resolucao. O PyAutoGUI usa os cantos como fail-safe; se o fail-safe disparar, mova o cursor para fora dos cantos antes de retomar a automacao.
 
-A rotina do VS Code digita snippets de Go em vez de texto aleatorio. O tamanho aproximado continua sendo definido por `vscode_text_length`, e o intervalo entre teclas pode ser configurado no hub para deixar a digitacao mais lenta ou mais rapida.
+A rotina do VS Code digita snippets de codigo em linguagens allowlisted (`go`, `python`, `js`, `typescript`, `rust`, `java` ou `random`). O tamanho aproximado continua sendo definido por `vscode_text_length`, e o intervalo entre teclas, taxa de erro corrigido com backspace e chance de pausa de pensamento podem ser configurados no hub.
+
+O scheduler do hub usa um modelo de ritmo diario com perfil (`developer_clt`, `developer_remote` ou `freelancer`), horario de almoco, coffee breaks, micro-pausas e clusters de foco/comunicacao/leitura. Durante pausas organicas o hub registra o evento e nao envia comandos novos ao agente.
+
+A rotina `scenario` executa sequencias compostas enviadas pelo hub, como coding session, email check e discord chat. Essas sequencias combinam abertura/foco de app, scroll em bursts, hotkeys, esperas, movimentos de mouse e digitacao humanizada. Mensagens de Discord geradas pelo cenario sao digitadas mas nao enviadas automaticamente por Enter.
 
 ## Inicializacao no logon
 

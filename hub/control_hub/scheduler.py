@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import random
 import time
 from typing import Any
 from uuid import uuid4
@@ -9,6 +8,7 @@ from uuid import uuid4
 from .agent_manager import AgentManager
 from .domain import SettingsError, build_command, choose_routine
 from .observability import capture_exception
+from .rhythm import RhythmEngine
 from .store import Store
 
 
@@ -19,11 +19,13 @@ class RoutineScheduler:
         agent_manager: AgentManager,
         tick_seconds: float = 1.0,
         command_timeout_seconds: float = 120.0,
+        rhythm_engine: RhythmEngine | None = None,
     ):
         self.store = store
         self.agent_manager = agent_manager
         self.tick_seconds = tick_seconds
         self.command_timeout_seconds = command_timeout_seconds
+        self.rhythm_engine = rhythm_engine or RhythmEngine()
         self._stop_event = asyncio.Event()
         self._next_run_at = time.monotonic() + 2
 
@@ -77,8 +79,22 @@ class RoutineScheduler:
             return
 
         try:
-            routine = choose_routine(settings)
-            command = build_command(routine, settings)
+            rhythm_state = self.rhythm_engine.evaluate(settings)
+            if rhythm_state.is_pause:
+                self.store.record_event(
+                    "scheduler",
+                    "paused",
+                    f"Pausa organica: {rhythm_state.pause_type} por {round(rhythm_state.pause_seconds)}s.",
+                )
+                self._next_run_at = now + rhythm_state.next_interval_seconds(settings)
+                return
+
+            routine = choose_routine(settings, routine_multipliers=rhythm_state.routine_multipliers)
+            command = build_command(
+                routine,
+                settings,
+                context={"energy": rhythm_state.energy, "mode": rhythm_state.mode},
+            )
         except SettingsError as exc:
             self.store.record_event("scheduler", "error", str(exc))
             self._next_run_at = now + 10
@@ -101,6 +117,4 @@ class RoutineScheduler:
             self.store.mark_command_result(command_id, "failure", message)
             self.store.record_event("scheduler", "skipped", message)
 
-        minimum = int(settings["min_interval_seconds"])
-        maximum = int(settings["max_interval_seconds"])
-        self._next_run_at = now + random.uniform(minimum, maximum)
+        self._next_run_at = now + rhythm_state.next_interval_seconds(settings)

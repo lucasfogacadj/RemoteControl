@@ -22,6 +22,7 @@ from windows_agent.agent import (
     env_optional_float,
     load_env_file,
     load_config,
+    random_code,
     random_go_code,
     random_mouse_point,
     resolve_executable,
@@ -103,6 +104,40 @@ def test_mouse_click_dry_run_succeeds_without_clicking():
     assert "aleatorio" in response["message"]
 
 
+def test_mouse_move_dry_run_succeeds_without_moving():
+    response = asyncio.run(
+        dispatch_command(
+            {"id": "1", "type": "mouse_move", "params": {"margin": 80, "duration_seconds": 1.2, "overshoot_chance": 0.1}},
+            config(),
+        )
+    )
+
+    assert response["status"] == "success"
+    assert "Dry-run Mouse" in response["message"]
+
+
+def test_scenario_dry_run_reports_subactions():
+    response = asyncio.run(
+        dispatch_command(
+            {
+                "id": "1",
+                "type": "scenario",
+                "params": {
+                    "scenario_type": "email_check",
+                    "actions": [
+                        {"type": "open_app", "app": "gmail"},
+                        {"type": "wait", "seconds": 1},
+                    ],
+                },
+            },
+            config(),
+        )
+    )
+
+    assert response["status"] == "success"
+    assert "2 sub-acoes" in response["message"]
+
+
 def test_mouse_click_rejects_invalid_button():
     response = asyncio.run(
         dispatch_command(
@@ -153,6 +188,31 @@ def test_mouse_click_active_uses_random_safe_point(monkeypatch):
     assert captured["button"] == "left"
 
 
+def test_mouse_move_active_uses_humanized_path(monkeypatch):
+    class FailSafeException(Exception):
+        pass
+
+    moved = []
+
+    fake_pyautogui = SimpleNamespace(
+        FailSafeException=FailSafeException,
+        moveTo=lambda x, y, duration=0: moved.append((x, y, duration)),
+        position=lambda: (400, 300),
+        size=lambda: (1280, 720),
+    )
+    monkeypatch.setitem(sys.modules, "pyautogui", fake_pyautogui)
+
+    response = asyncio.run(
+        dispatch_command(
+            {"id": "1", "type": "mouse_move", "params": {"margin": 80, "duration_seconds": 0.5, "overshoot_chance": 0}},
+            config(dry_run=False),
+        )
+    )
+
+    assert response["status"] == "success"
+    assert len(moved) >= 50
+
+
 def test_mouse_click_reports_failsafe_exception_when_cursor_is_in_corner(monkeypatch):
     class FailSafeException(Exception):
         pass
@@ -198,6 +258,39 @@ def test_type_text_yields_between_characters():
     assert pressed == ["enter"]
     assert written == [("a", 0), ("b", 0)]
     assert delays == [0.25, 0.25]
+
+
+def test_type_text_humanized_types_and_corrects_typos():
+    delays = []
+    pressed = []
+    written = []
+
+    class FakePyAutoGUI:
+        def press(self, key):
+            pressed.append(key)
+
+        def write(self, character, interval=0):
+            written.append((character, interval))
+
+    async def fake_sleep(delay):
+        delays.append(delay)
+
+    asyncio.run(
+        type_text(
+            FakePyAutoGUI(),
+            "ab",
+            0.05,
+            sleep=fake_sleep,
+            typo_rate=1.0,
+            humanize=True,
+            rng=random.Random(1),
+        )
+    )
+
+    assert ("a", 0) in written
+    assert ("b", 0) in written
+    assert "backspace" in pressed
+    assert any(delay != 0.05 for delay in delays)
 
 
 def test_type_text_stops_when_cancelled():
@@ -456,6 +549,23 @@ def test_random_go_code_generates_go_snippet():
     assert "func main()" in code
     assert "fmt." in code
     assert code.count("package main") == 1
+
+
+@pytest.mark.parametrize(
+    ("language", "expected"),
+    [
+        ("python", "def summarize"),
+        ("js", "const"),
+        ("typescript", "type ActivityEvent"),
+        ("rust", "fn main"),
+        ("java", "public class"),
+    ],
+)
+def test_random_code_generates_supported_languages(language, expected):
+    code, selected = random_code(language, 80)
+
+    assert selected == language
+    assert expected in code
 
 
 def test_resolve_executable_accepts_existing_explicit_path(tmp_path):

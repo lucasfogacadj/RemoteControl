@@ -11,7 +11,10 @@ const els = {
   agentMessage: document.querySelector("#agentMessage"),
   intervalSummary: document.querySelector("#intervalSummary"),
   targetSummary: document.querySelector("#targetSummary"),
+  typingSummary: document.querySelector("#typingSummary"),
   mouseSummary: document.querySelector("#mouseSummary"),
+  rhythmSummary: document.querySelector("#rhythmSummary"),
+  scenarioSummary: document.querySelector("#scenarioSummary"),
   commandSummary: document.querySelector("#commandSummary"),
   settingsForm: document.querySelector("#settingsForm"),
   routineList: document.querySelector("#routineList"),
@@ -20,11 +23,23 @@ const els = {
   vscodeTargetFile: document.querySelector("#vscodeTargetFile"),
   vscodeTextLength: document.querySelector("#vscodeTextLength"),
   vscodeTypingInterval: document.querySelector("#vscodeTypingInterval"),
+  codeLanguage: document.querySelector("#codeLanguage"),
+  typoRate: document.querySelector("#typoRate"),
+  thinkingPauseChance: document.querySelector("#thinkingPauseChance"),
   mouseClickButton: document.querySelector("#mouseClickButton"),
   mouseClickCount: document.querySelector("#mouseClickCount"),
   mouseClickMargin: document.querySelector("#mouseClickMargin"),
+  mouseMoveDuration: document.querySelector("#mouseMoveDuration"),
+  mouseOvershootChance: document.querySelector("#mouseOvershootChance"),
   minInterval: document.querySelector("#minInterval"),
   maxInterval: document.querySelector("#maxInterval"),
+  profile: document.querySelector("#profile"),
+  lunchStart: document.querySelector("#lunchStart"),
+  lunchEnd: document.querySelector("#lunchEnd"),
+  lunchJitter: document.querySelector("#lunchJitter"),
+  coffeeBreakCount: document.querySelector("#coffeeBreakCount"),
+  workStartJitter: document.querySelector("#workStartJitter"),
+  scenarioType: document.querySelector("#scenarioType"),
   eventList: document.querySelector("#eventList"),
 };
 
@@ -105,7 +120,10 @@ function renderStatus(state) {
   els.agentMessage.textContent = agent.last_message || "-";
   els.intervalSummary.textContent = `${settings.min_interval_seconds}s - ${settings.max_interval_seconds}s`;
   els.targetSummary.textContent = settings.vscode_target_file || "Nao configurado";
-  els.mouseSummary.textContent = `${settings.mouse_click_button} aleatorio margem ${settings.mouse_click_margin}px x${settings.mouse_click_count}`;
+  els.typingSummary.textContent = `${settings.code_language} / erro ${settings.typo_rate} / pausa ${settings.thinking_pause_chance}`;
+  els.mouseSummary.textContent = `${settings.mouse_click_button} margem ${settings.mouse_click_margin}px move ${settings.mouse_move_duration_seconds}s`;
+  els.rhythmSummary.textContent = `${settings.profile} almoco ${settings.lunch_start}-${settings.lunch_end}`;
+  els.scenarioSummary.textContent = settings.scenario_type || "random";
   els.commandSummary.textContent = `${state.commands.length} recentes`;
   renderEvents(state.events);
 }
@@ -114,11 +132,23 @@ function renderSettingsForm(settings) {
   els.vscodeTargetFile.value = settings.vscode_target_file || "";
   els.vscodeTextLength.value = settings.vscode_text_length;
   els.vscodeTypingInterval.value = settings.vscode_typing_interval_seconds;
+  els.codeLanguage.value = settings.code_language || "random";
+  els.typoRate.value = settings.typo_rate;
+  els.thinkingPauseChance.value = settings.thinking_pause_chance;
   els.mouseClickButton.value = settings.mouse_click_button || "left";
   els.mouseClickCount.value = settings.mouse_click_count;
   els.mouseClickMargin.value = settings.mouse_click_margin;
+  els.mouseMoveDuration.value = settings.mouse_move_duration_seconds;
+  els.mouseOvershootChance.value = settings.mouse_overshoot_chance;
   els.minInterval.value = settings.min_interval_seconds;
   els.maxInterval.value = settings.max_interval_seconds;
+  els.profile.value = settings.profile || "developer_remote";
+  els.lunchStart.value = settings.lunch_start || "12:00";
+  els.lunchEnd.value = settings.lunch_end || "13:00";
+  els.lunchJitter.value = settings.lunch_jitter_minutes;
+  els.coffeeBreakCount.value = settings.coffee_break_count;
+  els.workStartJitter.value = settings.work_start_jitter_minutes;
+  els.scenarioType.value = settings.scenario_type || "random";
   renderRoutines(settings.routines);
 }
 
@@ -147,11 +177,23 @@ function collectSettings() {
     vscode_target_file: els.vscodeTargetFile.value.trim(),
     vscode_text_length: Number(els.vscodeTextLength.value),
     vscode_typing_interval_seconds: Number(els.vscodeTypingInterval.value),
+    code_language: els.codeLanguage.value,
+    typo_rate: Number(els.typoRate.value),
+    thinking_pause_chance: Number(els.thinkingPauseChance.value),
     mouse_click_button: els.mouseClickButton.value,
     mouse_click_count: Number(els.mouseClickCount.value),
     mouse_click_margin: Number(els.mouseClickMargin.value),
+    mouse_move_duration_seconds: Number(els.mouseMoveDuration.value),
+    mouse_overshoot_chance: Number(els.mouseOvershootChance.value),
     min_interval_seconds: Number(els.minInterval.value),
     max_interval_seconds: Number(els.maxInterval.value),
+    profile: els.profile.value,
+    lunch_start: els.lunchStart.value,
+    lunch_end: els.lunchEnd.value,
+    lunch_jitter_minutes: Number(els.lunchJitter.value),
+    coffee_break_count: Number(els.coffeeBreakCount.value),
+    work_start_jitter_minutes: Number(els.workStartJitter.value),
+    scenario_type: els.scenarioType.value,
     routines,
   };
 }
