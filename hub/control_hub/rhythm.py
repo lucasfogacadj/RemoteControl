@@ -60,9 +60,18 @@ class RhythmEngine:
         self._mode_until: datetime | None = None
         self._micro_break_until: datetime | None = None
         self._next_micro_break_at: datetime | None = None
+        self._tzinfo = None
+
+    def reset(self) -> None:
+        self._plans.clear()
+        self._mode = "focus"
+        self._mode_until = None
+        self._micro_break_until = None
+        self._next_micro_break_at = None
 
     def evaluate(self, settings: dict[str, Any]) -> RhythmState:
         now = self.now_provider()
+        self._tzinfo = now.tzinfo
         plan = self._plan_for_day(settings, now.date())
         pause_type, pause_until = self._current_pause(plan, now)
         if pause_until is None:
@@ -87,11 +96,10 @@ class RhythmEngine:
         if existing is not None:
             return existing
 
-        profile = str(settings.get("profile", "developer_remote"))
-        start_minutes, end_minutes = PROFILE_WINDOWS.get(profile, PROFILE_WINDOWS["developer_remote"])
-        start_jitter = int(settings.get("work_start_jitter_minutes", 30))
-        if start_jitter > 0:
-            start_minutes += self.rng.randint(-start_jitter, start_jitter)
+        # Work boundaries are explicit per agent. Profile still affects energy/mode,
+        # but must not redefine the configured workday.
+        start_minutes = self._parse_minutes(str(settings.get("work_start", "08:30")))
+        end_minutes = self._parse_minutes(str(settings.get("work_end", "18:30")))
 
         lunch_start = self._parse_minutes(str(settings.get("lunch_start", "12:00")))
         lunch_end = self._parse_minutes(str(settings.get("lunch_end", "13:00")))
@@ -224,10 +232,13 @@ class RhythmEngine:
         hour, minute = value.split(":", 1)
         return int(hour) * 60 + int(minute)
 
-    @staticmethod
-    def _at_minutes(current_day: date, minutes: int) -> datetime:
+    def _at_minutes(self, current_day: date, minutes: int) -> datetime:
         normalized = max(0, min((24 * 60) - 1, minutes))
-        return datetime.combine(current_day, dt_time(hour=normalized // 60, minute=normalized % 60))
+        return datetime.combine(
+            current_day,
+            dt_time(hour=normalized // 60, minute=normalized % 60),
+            tzinfo=self._tzinfo,
+        )
 
     @staticmethod
     def _clamp(value: float) -> float:

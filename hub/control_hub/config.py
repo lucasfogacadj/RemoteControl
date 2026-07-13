@@ -9,6 +9,7 @@ class HubConfig:
     scheduler_tick_seconds: float
     agent_heartbeat_timeout_seconds: float
     command_timeout_seconds: float
+    shutdown_timeout_seconds: float
     sentry_dsn: str
     sentry_environment: str
     sentry_release: str
@@ -42,6 +43,7 @@ def load_config() -> HubConfig:
         scheduler_tick_seconds=env_float("CONTROL_SCHEDULER_TICK_SECONDS", 1, 0.1),
         agent_heartbeat_timeout_seconds=env_float("CONTROL_AGENT_HEARTBEAT_TIMEOUT_SECONDS", 45, 5),
         command_timeout_seconds=env_float("CONTROL_COMMAND_TIMEOUT_SECONDS", 120, 5),
+        shutdown_timeout_seconds=env_float_between("CONTROL_SHUTDOWN_TIMEOUT_SECONDS", 10, 0.1, 60),
         sentry_dsn=os.getenv("CONTROL_SENTRY_DSN", os.getenv("SENTRY_DSN", "")).strip(),
         sentry_environment=os.getenv("CONTROL_SENTRY_ENVIRONMENT", os.getenv("SENTRY_ENVIRONMENT", "production")).strip(),
         sentry_release=os.getenv("CONTROL_SENTRY_RELEASE", os.getenv("SENTRY_RELEASE", "")).strip(),

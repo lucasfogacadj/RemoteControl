@@ -12,6 +12,8 @@ Hub local containerizado para orquestrar rotinas autorizadas em um computador Wi
 
 O Ubuntu Server executa o hub em container. O Windows executa o agente localmente, conectado de saida ao hub por WebSocket com token compartilhado.
 
+O hub suporta uma frota pequena de ate 10 PCs em uma unica instancia Uvicorn/SQLite. Cada PC possui configuracao, jornada, fuso, historico e comando ativo independentes. A regra de execucao e sempre: **frota ativa AND PC ativo AND dentro da janela de trabalho**.
+
 AnyDesk fica apenas como canal manual de acesso/suporte. O projeto nao automatiza a janela do AnyDesk e nao envia scripts arbitrarios ao Windows.
 
 ## Limites de seguranca
@@ -24,6 +26,7 @@ AnyDesk fica apenas como canal manual de acesso/suporte. O projeto nao automatiz
 - O scheduler aplica ritmo diario configuravel, incluindo perfil, almoco, coffee breaks, micro-pausas e cenarios de trabalho.
 - O sistema nao coleta, armazena ou preenche credenciais.
 - Rotinas de GUI exigem sessao Windows interativa ativa.
+- A UI/API nao possuem login de operador nesta versao. Mantenha a porta somente em rede confiavel ou VPN e proteja o token compartilhado.
 
 ## Inicio rapido do hub
 
@@ -54,9 +57,25 @@ python -m venv .venv
 pip install -r windows_agent\requirements.txt
 $env:CONTROL_HUB_WS_URL="ws://localhost:8080/ws/agent"
 $env:CONTROL_PAIRING_TOKEN="change-this-token"
+$env:CONTROL_AGENT_ID="windows-desktop-01"
 $env:CONTROL_AGENT_DRY_RUN="true"
 $env:CONTROL_SENTRY_DSN="https://..."
 python -m windows_agent.agent
+```
+
+## Operacao multi-PC e rollout
+
+Novos agentes com `CONTROL_AGENT_ID` valido sao cadastrados automaticamente, mas nascem desativados. Ative cada PC pela console somente depois de validar dry-run. O botao **Pausar todos** e o endpoint `POST /api/toggle` continuam sendo o kill switch global.
+
+No primeiro rollout multi-PC, pause a frota, gere/valide o backup SQLite, atualize o hub, atualize o agente legado com `CONTROL_AGENT_ID=windows-desktop-01`, valide `dry-run`, `/health` e `/health/ready`, e so entao reative os PCs autorizados. O hub preserva estruturas legadas na primeira versao; nao faca push, PR ou deploy de producao automaticamente.
+
+O registro dos checks locais, browser e Docker esta em [docs/multi-pc-validation.md](docs/multi-pc-validation.md).
+
+Para repetir a validação browser automatizada:
+
+```powershell
+npm install
+npm run test:e2e
 ```
 
 ## OpenSpec

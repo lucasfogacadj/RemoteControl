@@ -84,6 +84,22 @@ h2 {
   align-items: start;
 }
 
+.fleet-workspace {
+  grid-template-columns: minmax(240px, 0.4fr) minmax(0, 1.6fr);
+}
+
+.detail-column {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.history-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -172,7 +188,7 @@ label {
 input,
 select {
   width: 100%;
-  min-height: 42px;
+  min-height: 44px;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 8px 10px;
@@ -219,7 +235,7 @@ select:focus {
 }
 
 button {
-  min-height: 40px;
+  min-height: 44px;
   border: 0;
   border-radius: 8px;
   padding: 8px 14px;
@@ -230,6 +246,12 @@ button {
 button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+button:focus-visible,
+.agent-row:focus-visible {
+  outline: 3px solid rgba(39, 100, 216, 0.35);
+  outline-offset: 2px;
 }
 
 .primary,
@@ -262,6 +284,89 @@ button:disabled {
 
 .form-message.error {
   color: var(--red);
+}
+
+.status-message {
+  min-height: 22px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.danger-button {
+  color: #fff;
+  background: var(--red);
+}
+
+.confirmation-dialog {
+  width: min(480px, calc(100% - 32px));
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0;
+  color: var(--ink);
+  background: var(--panel);
+  box-shadow: 0 18px 50px rgba(23, 32, 51, 0.24);
+}
+
+.confirmation-dialog::backdrop {
+  background: rgba(23, 32, 51, 0.52);
+}
+
+.confirmation-dialog-content {
+  padding: 22px;
+}
+
+.confirmation-dialog-content h2 {
+  font-size: 1.15rem;
+}
+
+.confirmation-dialog-content p:not(.form-message) {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.confirmation-actions {
+  justify-content: flex-end;
+}
+
+.agent-list {
+  display: grid;
+  gap: 8px;
+  max-height: 560px;
+  overflow: auto;
+}
+
+.agent-row {
+  width: 100%;
+  min-height: 56px;
+  display: grid;
+  gap: 3px;
+  align-content: center;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  background: #fff;
+  text-align: left;
+}
+
+.agent-row strong {
+  overflow-wrap: anywhere;
+}
+
+.agent-row span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.agent-row.selected {
+  border-color: var(--blue);
+  background: #eef4ff;
 }
 
 .event-list {
@@ -305,6 +410,8 @@ button:disabled {
   .topbar,
   .status-grid,
   .workspace,
+  .fleet-workspace,
+  .history-grid,
   .form-grid {
     grid-template-columns: 1fr;
   }
