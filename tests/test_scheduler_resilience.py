@@ -182,6 +182,7 @@ class RecordingAgentManager:
 def initialized_store(tmp_path):
     store = Store(str(tmp_path / "control.db"))
     store.init()
+    store.set_fleet_enabled(True)
     store.save_settings(enabled_vscode_settings())
     return store
 

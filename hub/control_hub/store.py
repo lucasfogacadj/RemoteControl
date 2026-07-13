@@ -253,7 +253,7 @@ class Store:
                 legacy_enabled = False
             legacy_enabled = int(legacy_enabled is True)
             self._conn.execute(
-                "INSERT OR IGNORE INTO fleet_state (id, enabled, updated_at) VALUES (1, 1, ?)", (now,)
+                "INSERT OR IGNORE INTO fleet_state (id, enabled, updated_at) VALUES (1, 0, ?)", (now,)
             )
             self._conn.execute(
                 """

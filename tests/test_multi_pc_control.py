@@ -82,6 +82,7 @@ def test_migration_backs_up_singleton_database_and_cancels_legacy_active_command
     try:
         assert Path(store.last_backup_path).exists()
         assert store.integrity_check() == "ok"
+        assert store.get_fleet_state()["enabled"] is False
         assert store.get_agent_config(LEGACY_AGENT_ID)["enabled"] is True
         assert store.list_commands()[0]["status"] == "cancelled"
         assert store.list_commands()[0]["legacy_unassigned"] is True

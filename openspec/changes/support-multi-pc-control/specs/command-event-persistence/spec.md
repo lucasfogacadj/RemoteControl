@@ -42,6 +42,13 @@ The schema SHALL provide `fleet_state` for the global master switch and `agent_s
 - **THEN** its validated content is copied to `windows-desktop-01`
 - **AND** the legacy API alias resolves to that explicit agent
 
+#### Scenario: Migration keeps the new fleet master paused
+
+- **WHEN** the first multi-PC migration creates `fleet_state`
+- **THEN** the global master switch starts disabled regardless of the legacy PC activation bit
+- **AND** the legacy activation bit is migrated only to `windows-desktop-01`
+- **AND** no agent can execute until the operator explicitly reactivates the fleet after dry-run validation
+
 #### Scenario: Legacy active command is not executed after migration
 
 - **WHEN** a pre-migration command has an active status and no `agent_id`
