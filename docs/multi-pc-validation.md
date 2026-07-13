@@ -20,7 +20,7 @@ docker compose -p control-multi-pc-validation build
 docker compose -p control-multi-pc-validation up -d
 ```
 
-Resultado na última validação local: 97 testes Python e 9 testes browser passaram. A suíte cobre migração/backup, settings estritos, ETag, dois a dez agentes, isolamento de sessão/resultado/cancelamento, sessão substituída, shutdown cooperativo, timeout a cada tick, retenção e carga de heartbeat concorrente. Os testes de scheduler usam um relógio injetável e fixo, mantendo a regra real de jornada sem depender do horário em que a suíte é executada.
+Resultado na última validação local: 97 testes Python e 9 testes browser passaram. A suíte cobre migração/backup com o novo master switch nascendo pausado, settings estritos, ETag, dois a dez agentes, isolamento de sessão/resultado/cancelamento, sessão substituída, shutdown cooperativo, timeout a cada tick, retenção e carga de heartbeat concorrente. Os testes de scheduler usam um relógio injetável e fixo, mantendo a regra real de jornada sem depender do horário em que a suíte é executada.
 
 No browser, a troca de PC com formulário sujo foi validada com dois agentes: `Cancelar` preserva a edição, `Descartar` troca sem persistir e o conflito ETag mantém a edição sem sobrescrever a revisão externa. A suíte também cobre XSS, erro/retry, polling oculto, master pause, toggle/cancel e ausência de overflow nos três breakpoints.
 
