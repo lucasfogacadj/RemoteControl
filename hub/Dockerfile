@@ -14,5 +14,4 @@ COPY hub/control_hub /app/control_hub
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "uvicorn control_hub.main:app --host ${CONTROL_HOST:-0.0.0.0} --port ${CONTROL_PORT:-8080}"]
-
+CMD ["sh", "-c", "uvicorn control_hub.main:app --host ${CONTROL_HOST:-0.0.0.0} --port ${CONTROL_PORT:-8080} --workers 1 --no-access-log --log-level warning"]

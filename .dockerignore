@@ -1,10 +1,15 @@
 .git
+.env
+**/.env
 .codex
 openspec
 .venv
 __pycache__
 .pytest_cache
+.playwright-cli
+node_modules
+output
 *.pyc
 data
 hub/data
-
+*.pre-multi-pc-v1.bak.db

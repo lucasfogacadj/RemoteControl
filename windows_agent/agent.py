@@ -16,6 +16,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import webbrowser
+import re
 
 from .mouse_humanizer import bezier_path, choose_interest_point, overshoot_point, safe_bounds
 
@@ -30,6 +31,8 @@ PYAUTOGUI_FAILSAFE_MESSAGE = (
     "PyAutoGUI bloqueou a automacao porque o cursor esta em um canto da tela. "
     "Mova o mouse para fora dos cantos e tente novamente."
 )
+AGENT_ID_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$")
+AGENT_PROTOCOL_VERSION = "2"
 
 
 class CommandCancelled(Exception):
@@ -56,6 +59,9 @@ class AgentConfig:
     sentry_release: str
     sentry_traces_sample_rate: float
     sentry_send_default_pii: bool
+    agent_name: str = ""
+    reconnect_max_seconds: float = 60.0
+    heartbeat_jitter_seconds: float = 0.5
 
 
 def env_bool(name: str, default: bool) -> bool:
@@ -112,10 +118,18 @@ def load_env_file(path: Path) -> None:
 def load_config() -> AgentConfig:
     load_env_file(Path(__file__).with_name(".env"))
 
+    agent_id = os.getenv("CONTROL_AGENT_ID", "").strip().lower()
+    if not agent_id:
+        raise ValueError("CONTROL_AGENT_ID e obrigatorio para identificar este PC de forma unica.")
+    if not AGENT_ID_PATTERN.fullmatch(agent_id):
+        raise ValueError(
+            "CONTROL_AGENT_ID deve ter 1-64 caracteres minusculos e usar letras, numeros, '.', '_' ou '-'."
+        )
+
     return AgentConfig(
         hub_ws_url=os.getenv("CONTROL_HUB_WS_URL", "ws://localhost:8080/ws/agent"),
         pairing_token=os.getenv("CONTROL_PAIRING_TOKEN", "dev-change-me"),
-        agent_id=os.getenv("CONTROL_AGENT_ID", "windows-agent"),
+        agent_id=agent_id,
         dry_run=env_bool("CONTROL_AGENT_DRY_RUN", True),
         heartbeat_seconds=env_float("CONTROL_AGENT_HEARTBEAT_SECONDS", 10, 1),
         vscode_executable=os.getenv("VSCODE_EXECUTABLE", "code"),
@@ -135,6 +149,9 @@ def load_config() -> AgentConfig:
         sentry_release=os.getenv("CONTROL_SENTRY_RELEASE", os.getenv("SENTRY_RELEASE", "")).strip(),
         sentry_traces_sample_rate=env_float_between("CONTROL_SENTRY_TRACES_SAMPLE_RATE", 0.0, 0.0, 1.0),
         sentry_send_default_pii=env_bool("CONTROL_SENTRY_SEND_DEFAULT_PII", False),
+        agent_name=os.getenv("CONTROL_AGENT_NAME", os.getenv("COMPUTERNAME", agent_id)).strip() or agent_id,
+        reconnect_max_seconds=env_float("CONTROL_AGENT_RECONNECT_MAX_SECONDS", 60, 1),
+        heartbeat_jitter_seconds=env_float_between("CONTROL_AGENT_HEARTBEAT_JITTER_SECONDS", 0.5, 0.0, 5.0),
     )
 
 
@@ -168,9 +185,12 @@ def capture_exception(exc: BaseException) -> None:
 def build_agent_url(config: AgentConfig) -> str:
     parts = urlsplit(config.hub_ws_url)
     query = dict(parse_qsl(parts.query))
-    query["token"] = config.pairing_token
     query["agent_id"] = config.agent_id
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+def connection_headers(config: AgentConfig) -> dict[str, str]:
+    return {"Authorization": f"Bearer {config.pairing_token}"}
 
 
 def random_identifier(prefix: str = "value") -> str:
@@ -357,13 +377,17 @@ def chrome_executable(config: AgentConfig) -> str | None:
 
 
 def result(command: dict[str, Any], status: str, message: str) -> dict[str, Any]:
-    return {
+    payload = {
         "type": "result",
         "command_id": command.get("id", ""),
         "routine": command.get("type", "unknown"),
         "status": status,
         "message": message,
     }
+    for key in ("agent_id", "session_id"):
+        if isinstance(command.get(key), str) and command[key]:
+            payload[key] = command[key]
+    return payload
 
 
 def is_mouse_failsafe_point(pyautogui: Any, x: int, y: int) -> bool:
@@ -1064,29 +1088,53 @@ async def realistic_alt_tab(
         pyautogui.keyUp("alt")
 
 
-async def heartbeat_loop(websocket: Any, config: AgentConfig) -> None:
+def hello_message(config: AgentConfig) -> dict[str, Any]:
+    return {
+        "type": "hello",
+        "agent_id": config.agent_id,
+        "name": config.agent_name or config.agent_id,
+        "version": "windows-agent-2",
+        "protocol": AGENT_PROTOCOL_VERSION,
+        "dry_run": config.dry_run,
+        "execution_idle": True,
+        "capabilities": sorted(SUPPORTED_COMMANDS),
+    }
+
+
+async def heartbeat_loop(websocket: Any, config: AgentConfig, connection: dict[str, Any] | None = None) -> None:
     while True:
+        payload = {
+            "type": "heartbeat",
+            "agent_id": config.agent_id,
+            "message": "dry-run" if config.dry_run else "active",
+        }
+        session_id = (connection or {}).get("session_id")
+        if isinstance(session_id, str) and session_id:
+            payload["session_id"] = session_id
         await websocket.send(
-            json.dumps(
-                {
-                    "type": "heartbeat",
-                    "agent_id": config.agent_id,
-                    "message": "dry-run" if config.dry_run else "active",
-                }
-            )
+            json.dumps(payload)
         )
-        await asyncio.sleep(config.heartbeat_seconds)
+        jitter = min(config.heartbeat_jitter_seconds, max(0.0, config.heartbeat_seconds * 0.15))
+        await asyncio.sleep(max(0.1, config.heartbeat_seconds + random.uniform(-jitter, jitter)))
 
 
-async def command_loop(websocket: Any, config: AgentConfig) -> None:
+async def command_loop(websocket: Any, config: AgentConfig, connection: dict[str, Any] | None = None) -> None:
     command_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=1)
     command_busy = asyncio.Event()
     cancel_event = threading.Event()
-    worker_task = asyncio.create_task(command_worker_loop(websocket, config, command_queue, command_busy, cancel_event))
+    connection = connection if connection is not None else {"session_id": None, "open": True}
+    worker_task = asyncio.create_task(
+        command_worker_loop(websocket, config, command_queue, command_busy, cancel_event, connection)
+    )
     try:
         async for raw_message in websocket:
             message = json.loads(raw_message)
             message_type = message.get("type")
+            if message_type == "hello_ack":
+                session_id = message.get("session_id")
+                if isinstance(session_id, str) and session_id:
+                    connection["session_id"] = session_id
+                continue
             if message_type == "control" and message.get("action") == CONTROL_CANCEL_ACTIVE_COMMAND:
                 cancel_event.set()
                 continue
@@ -1096,10 +1144,16 @@ async def command_loop(websocket: Any, config: AgentConfig) -> None:
             if command_busy.is_set() or not command_queue.empty():
                 await websocket.send(json.dumps(result(command, "failure", COMMAND_BUSY_MESSAGE)))
                 continue
+            command.setdefault("agent_id", config.agent_id)
+            if isinstance(connection.get("session_id"), str) and connection["session_id"]:
+                command.setdefault("session_id", connection["session_id"])
             cancel_event.clear()
             command_queue.put_nowait(command)
     finally:
-        worker_task.cancel()
+        connection["open"] = False
+        cancel_event.set()
+        if not command_busy.is_set():
+            worker_task.cancel()
         await asyncio.gather(worker_task, return_exceptions=True)
 
 
@@ -1109,17 +1163,24 @@ async def command_worker_loop(
     command_queue: asyncio.Queue[dict[str, Any]],
     command_busy: asyncio.Event,
     cancel_event: threading.Event,
+    connection: dict[str, Any] | None = None,
 ) -> None:
+    connection = connection if connection is not None else {"open": True}
     while True:
         command = await command_queue.get()
         command_busy.set()
+        stop_after_command = False
         try:
             command_result = await dispatch_command_in_worker(command, config, cancel_event)
-            await websocket.send(json.dumps(command_result))
+            if connection.get("open", True):
+                await websocket.send(json.dumps(command_result))
         finally:
             command_busy.clear()
             cancel_event.clear()
             command_queue.task_done()
+            stop_after_command = not connection.get("open", True)
+        if stop_after_command:
+            return
 
 
 async def dispatch_command_in_worker(
@@ -1135,15 +1196,21 @@ async def dispatch_command_with_timeout(
     config: AgentConfig,
     cancel_event: threading.Event | None = None,
 ) -> dict[str, Any]:
+    command_timeout = command.get("execution_timeout_seconds", config.command_timeout_seconds)
+    if isinstance(command_timeout, bool) or not isinstance(command_timeout, (int, float)):
+        command_timeout = config.command_timeout_seconds
+    command_timeout = max(0.001, min(1800.0, float(command_timeout)))
     try:
-        return await asyncio.wait_for(dispatch_command(command, config, cancel_event), timeout=config.command_timeout_seconds)
+        return await asyncio.wait_for(dispatch_command(command, config, cancel_event), timeout=command_timeout)
     except asyncio.TimeoutError:
-        return result(command, "failure", f"Comando excedeu o tempo limite de {config.command_timeout_seconds:g}s.")
+        return result(command, "failure", f"Comando excedeu o tempo limite de {command_timeout:g}s.")
 
 
 async def run_connection(websocket: Any, config: AgentConfig) -> None:
-    heartbeat_task = asyncio.create_task(heartbeat_loop(websocket, config))
-    command_task = asyncio.create_task(command_loop(websocket, config))
+    connection: dict[str, Any] = {"session_id": None, "open": True}
+    await websocket.send(json.dumps(hello_message(config)))
+    heartbeat_task = asyncio.create_task(heartbeat_loop(websocket, config, connection))
+    command_task = asyncio.create_task(command_loop(websocket, config, connection))
     tasks = {heartbeat_task, command_task}
     try:
         done, pending = await asyncio.wait(
@@ -1157,6 +1224,7 @@ async def run_connection(websocket: Any, config: AgentConfig) -> None:
         for task in done:
             task.result()
     finally:
+        connection["open"] = False
         remaining = [task for task in tasks if not task.done()]
         for task in remaining:
             task.cancel()
@@ -1168,16 +1236,27 @@ async def run_agent(config: AgentConfig) -> None:
     import websockets
 
     url = build_agent_url(config)
+    failures = 0
     while True:
         try:
             async with websockets.connect(
                 url,
+                additional_headers=connection_headers(config),
                 ping_interval=config.websocket_ping_interval_seconds,
                 ping_timeout=config.websocket_ping_timeout_seconds,
             ) as websocket:
                 await run_connection(websocket, config)
+                failures = 0
         except Exception as exc:
-            print(f"Agent connection failed: {exc}. Retrying in {config.reconnect_seconds:g}s.", flush=True)
+            failures += 1
+            backoff = min(config.reconnect_max_seconds, config.reconnect_seconds * (2 ** min(failures - 1, 8)))
+            jitter = random.uniform(0, min(1.0, backoff * 0.15))
+            print(
+                f"Agent connection failed ({type(exc).__name__}). Retrying in {backoff + jitter:g}s.",
+                flush=True,
+            )
+            await asyncio.sleep(backoff + jitter)
+            continue
         await asyncio.sleep(config.reconnect_seconds)
 
 

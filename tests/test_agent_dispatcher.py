@@ -15,7 +15,9 @@ from windows_agent.agent import (
     COMMAND_CANCELLED_MESSAGE,
     COMMAND_BUSY_MESSAGE,
     CommandCancelled,
+    build_agent_url,
     command_loop,
+    connection_headers,
     dispatch_command,
     dispatch_command_in_worker,
     dispatch_command_with_timeout,
@@ -54,6 +56,17 @@ def config(**overrides):
     }
     values.update(overrides)
     return AgentConfig(**values)
+
+
+def test_agent_authentication_token_is_sent_in_header_not_url():
+    agent_config = config(pairing_token="super-secret", agent_id="desktop-01")
+
+    url = build_agent_url(agent_config)
+
+    assert "agent_id=desktop-01" in url
+    assert "super-secret" not in url
+    assert "token=" not in url
+    assert connection_headers(agent_config) == {"Authorization": "Bearer super-secret"}
 
 
 def test_dispatch_rejects_unsupported_command():
@@ -493,6 +506,7 @@ def test_optional_float_allows_disabling_websocket_ping(monkeypatch):
 
 
 def test_load_config_disables_websocket_ping_timeout_by_default(monkeypatch):
+    monkeypatch.setenv("CONTROL_AGENT_ID", "test-agent")
     monkeypatch.delenv("CONTROL_AGENT_WS_PING_INTERVAL_SECONDS", raising=False)
     monkeypatch.delenv("CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS", raising=False)
     monkeypatch.delenv("CONTROL_AGENT_COMMAND_TIMEOUT_SECONDS", raising=False)
@@ -516,6 +530,13 @@ def test_load_config_disables_websocket_ping_timeout_by_default(monkeypatch):
     assert loaded.sentry_release == ""
     assert loaded.sentry_traces_sample_rate == 0.0
     assert loaded.sentry_send_default_pii is False
+
+
+def test_load_config_requires_unique_agent_id(monkeypatch):
+    monkeypatch.delenv("CONTROL_AGENT_ID", raising=False)
+
+    with pytest.raises(ValueError, match="CONTROL_AGENT_ID"):
+        load_config()
 
 
 def test_load_env_file_sets_missing_environment_values(tmp_path, monkeypatch):

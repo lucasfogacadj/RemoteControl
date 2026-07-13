@@ -2,3 +2,5 @@ fastapi==0.115.6
 sentry-sdk[fastapi]==2.61.1
 uvicorn[standard]==0.34.0
 pytest==8.3.4
+tzdata>=2024.1
+httpx==0.28.1

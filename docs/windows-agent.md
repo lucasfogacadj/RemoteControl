@@ -27,9 +27,12 @@ Copie os valores de `windows_agent/.env.example` para variaveis de ambiente da s
 $env:CONTROL_HUB_WS_URL="ws://SEU_UBUNTU_SERVER:8080/ws/agent"
 $env:CONTROL_PAIRING_TOKEN="troque-este-token"
 $env:CONTROL_AGENT_ID="windows-desktop-01"
+$env:CONTROL_AGENT_NAME="Windows Desktop 01"
 $env:CONTROL_AGENT_DRY_RUN="true"
 $env:CONTROL_AGENT_HEARTBEAT_SECONDS="10"
+$env:CONTROL_AGENT_HEARTBEAT_JITTER_SECONDS="0.5"
 $env:CONTROL_AGENT_RECONNECT_SECONDS="5"
+$env:CONTROL_AGENT_RECONNECT_MAX_SECONDS="60"
 $env:CONTROL_AGENT_WS_PING_INTERVAL_SECONDS="0"
 $env:CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS="0"
 $env:CONTROL_AGENT_COMMAND_TIMEOUT_SECONDS="120"
@@ -58,6 +61,10 @@ python -m windows_agent.agent
 
 Com `CONTROL_AGENT_DRY_RUN=true`, o agente conecta, envia heartbeat e responde comandos sem abrir programas.
 
+`CONTROL_AGENT_ID` e obrigatorio na configuracao operacional e deve ser unico na frota. Use apenas letras minusculas, numeros, `.`, `_` e `-`; por exemplo, `windows-desktop-02`. Ao conectar pela primeira vez, o PC aparece na console como **desativado**. O agente envia um `hello` com nome, versao, protocolo, dry-run e capacidades; o hub atribui uma sessao nova a cada conexao.
+
+O agente atual envia o token no header `Authorization` do handshake WebSocket, evitando segredos no URL e nos logs. O hub aceita temporariamente o token por query string apenas para compatibilidade com agentes antigos; atualize todos os PCs antes de remover esse adapter em uma versão futura.
+
 Se `CONTROL_SENTRY_DSN` estiver preenchido, o agente envia excecoes capturadas para o Sentry com tags `component=windows_agent` e `agent_id`.
 
 ## Conexao resiliente
@@ -70,6 +77,8 @@ $env:CONTROL_AGENT_RECONNECT_SECONDS="5"
 $env:CONTROL_AGENT_WS_PING_INTERVAL_SECONDS="0"
 $env:CONTROL_AGENT_WS_PING_TIMEOUT_SECONDS="0"
 ```
+
+O heartbeat inclui jitter limitado e a reconexao usa backoff exponencial com teto. Se a conexao cair durante uma rotina, o agente recebe cancelamento cooperativo e termina o worker antes de aceitar outra rotina apos reconectar.
 
 No hub, `CONTROL_AGENT_HEARTBEAT_TIMEOUT_SECONDS` deve ser maior que o heartbeat do agente. O padrao do hub e 45 segundos. O valor `0` nas variaveis `CONTROL_AGENT_WS_PING_*` desativa o ping interno da biblioteca WebSocket; o heartbeat da aplicacao continua ativo.
 
