@@ -112,6 +112,7 @@ function renderFleet(fleetState) {
   text(els.schedulerStatus, fleetState.scheduler?.task_running ? "Ativo" : "Indisponível");
   els.fleetToggleButton.textContent = fleet.enabled ? "Pausar todos" : "Retomar todos";
   els.fleetToggleButton.setAttribute("aria-pressed", String(fleet.enabled));
+  els.fleetToggleButton.classList.toggle("enabled", Boolean(fleet.enabled));
   clear(els.agentList);
   for (const agent of agents) {
     const row = button("", "agent-row");

@@ -188,6 +188,26 @@ test("suspends polling while hidden and resumes when visible", async ({ page }) 
   await expect.poll(() => fleetRequests).toBeGreaterThan(requestsWhenHidden);
 });
 
+test("uses the dark-only visual system with accessible focus and reduced motion", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+
+  await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
+  await expect(page.locator("body")).toHaveCSS("background-color", "rgb(2, 6, 23)");
+  await expect(page.locator(".panel").first()).toHaveCSS("background-color", "rgb(15, 23, 42)");
+  await expect(page.locator("#vscodeTargetFile")).toHaveCSS("background-color", "rgb(17, 24, 39)");
+  const fleetEnabled = await page.locator("#fleetToggleButton").getAttribute("aria-pressed");
+  expect(await page.locator("#fleetToggleButton").evaluate((element) => element.classList.contains("enabled"))).toBe(fleetEnabled === "true");
+
+  await page.locator("#refreshButton").focus();
+  await expect(page.locator("#refreshButton")).toHaveCSS("outline-style", "solid");
+  const transitionDuration = await page.locator("#refreshButton").evaluate((element) => {
+    const value = getComputedStyle(element).transitionDuration;
+    return value.endsWith("ms") ? Number.parseFloat(value) / 1_000 : Number.parseFloat(value);
+  });
+  expect(transitionDuration).toBeLessThanOrEqual(0.001);
+});
+
 for (const viewport of [
   { width: 375, height: 812, label: "mobile" },
   { width: 768, height: 1024, label: "tablet" },
