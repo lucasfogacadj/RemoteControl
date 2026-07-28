@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 import hub.control_hub.main as main
 from hub.control_hub.agent_manager import AgentManager
@@ -30,6 +31,13 @@ class RecordingWebSocket:
 
     async def close(self, code=1000):
         self.closed = code
+
+
+class ClosedApplicationWebSocket:
+    application_state = WebSocketState.DISCONNECTED
+
+    async def receive_json(self):  # pragma: no cover - the state guard must prevent this call.
+        raise AssertionError("receive_json nao deve ser chamado em socket fechado")
 
 
 @contextmanager
@@ -55,6 +63,11 @@ def hello(agent_id):
         "dry_run": True,
         "capabilities": ["open_gmail"],
     }
+
+
+def test_agent_socket_treats_a_watchdog_closed_socket_as_a_normal_disconnect():
+    with pytest.raises(WebSocketDisconnect):
+        asyncio.run(main._receive_agent_json(ClosedApplicationWebSocket()))
 
 
 def test_migration_backs_up_singleton_database_and_cancels_legacy_active_command(tmp_path):

@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import Body, FastAPI, Header, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.websockets import WebSocketState
 
 from .agent_manager import AgentManager
 from .config import load_config
@@ -405,6 +406,17 @@ async def _process_agent_message(
     store.record_event("agent", "ignored", f"Mensagem desconhecida: {message_type}", agent_id=agent_id)
 
 
+async def _receive_agent_json(websocket: WebSocket) -> dict[str, Any]:
+    """Read a message unless a watchdog or replacement already closed the socket."""
+    # `AgentManager.disconnect_stale()` and reconnect handling can close a socket
+    # from another task while this handler is waiting for the next message. Starlette
+    # then raises RuntimeError before reading; model that expected close as a normal
+    # WebSocket disconnect instead.
+    if websocket.application_state is not WebSocketState.CONNECTED:
+        raise WebSocketDisconnect(code=1000)
+    return await websocket.receive_json()
+
+
 @app.websocket("/ws/agent")
 async def agent_socket(
     websocket: WebSocket,
@@ -425,7 +437,7 @@ async def agent_socket(
     session_id: str | None = None
     normalized_agent_id: str | None = None
     try:
-        first_message = await websocket.receive_json()
+        first_message = await _receive_agent_json(websocket)
         if first_message.get("type") == "hello":
             hello = validate_hello(first_message, agent_id or None)
         else:
@@ -451,7 +463,7 @@ async def agent_socket(
         if first_message.get("type") != "hello":
             await _process_agent_message(normalized_agent_id, session_id, websocket, first_message)
         while True:
-            message = await websocket.receive_json()
+            message = await _receive_agent_json(websocket)
             await _process_agent_message(normalized_agent_id, session_id, websocket, message)
     except ProtocolError as exc:
         if normalized_agent_id:
